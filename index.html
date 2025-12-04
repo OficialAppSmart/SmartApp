@@ -1,0 +1,1208 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' data: gap: https://ssl.gstatic.com 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://fonts.googleapis.com; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com; font-src 'self' https://fonts.gstatic.com;">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simulador de Progresso de Estudos de Economia</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f4f7f9;
+        }
+        .phase-card {
+            transition: transform 0.2s, box-shadow 0.2s, background-color 0.3s;
+            cursor: pointer;
+            border: 2px solid transparent;
+        }
+        .phase-card:hover:not(.completed) {
+            transform: translateY(-4px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            border-color: #6366f1; /* Indigo-500 */
+        }
+        .completed {
+            background-color: #d1fae5; /* Green-100 */
+            border-color: #10b981; /* Green-500 */
+            /* Remove pointer-events to allow clicking completed main phase to see subphases,
+               but the internal button will still be disabled by logic. */
+        }
+        .option-button {
+            transition: background-color 0.15s, transform 0.05s;
+        }
+        .option-button:hover:not(:disabled) {
+            transform: scale(1.01);
+        }
+        .subphase-item:hover {
+            background-color: #f0f3ff;
+        }
+    </style>
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#4338ca">
+</head>
+<body class="p-4 md:p-8">
+
+    <div class="max-w-4xl mx-auto">
+        <header class="text-center mb-10">
+            <h1 class="text-3xl md:text-4xl font-extrabold text-indigo-700 mb-2">Plano de Estudos de Economia</h1>
+            <p class="text-lg text-gray-600">Seu progresso é salvo no seu navegador. Conclua as fases na ordem que desejar!</p>
+        </header>
+
+        <div id="phases-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            <!-- As fases serão injetadas aqui pelo JavaScript -->
+        </div>
+
+        <div id="message-box" class="fixed bottom-4 right-4 bg-green-600 text-white p-3 rounded-lg shadow-xl hidden transition-opacity duration-300 z-50">
+            Progresso salvo localmente!
+        </div>
+       
+    </div>
+
+    <!-- Modal para Lista de Subfases -->
+    <div id="subphase-list-modal" class="fixed inset-0 z-50 bg-gray-900 bg-opacity-75 hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-xl p-6 w-full max-w-lg shadow-2xl relative max-h-[90vh] overflow-y-auto">
+            <h3 id="modal-subphase-list-title" class="text-2xl font-bold mb-4 text-indigo-700"></h3>
+            <div id="subphases-list-container" class="space-y-3">
+                <!-- Lista de subfases será injetada aqui -->
+            </div>
+            <button onclick="document.getElementById('subphase-list-modal').classList.add('hidden')" class="absolute top-4 right-4 text-gray-400 hover:text-gray-800 transition-colors">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            </button>
+        </div>
+    </div>
+
+
+    <!-- Modal para Conteúdo da Lição (Aula) -->
+    <div id="lesson-modal" class="fixed inset-0 z-40 bg-gray-900 bg-opacity-75 hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-xl p-6 w-full max-w-lg shadow-2xl relative max-h-[90vh] overflow-y-auto">
+            <h3 id="modal-lesson-title" class="text-2xl font-bold mb-4 text-indigo-700"></h3>
+            <div id="modal-lesson-content" class="text-gray-700 space-y-4 leading-relaxed"></div>
+            <button id="lesson-start-quiz-btn" class="w-full bg-indigo-600 text-white font-bold py-3 rounded-lg mt-6 hover:bg-indigo-700 transition-colors">
+                Terminei a Leitura! Iniciar Quiz
+            </button>
+            <button onclick="document.getElementById('lesson-modal').classList.add('hidden')" class="absolute top-4 right-4 text-gray-400 hover:text-gray-800 transition-colors">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            </button>
+        </div>
+    </div>
+
+    <!-- Modal para Quiz -->
+    <div id="quiz-modal" class="fixed inset-0 z-40 bg-gray-900 bg-opacity-75 hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-xl p-6 w-full max-w-md shadow-2xl relative">
+            <p id="quiz-counter" class="text-sm text-gray-500 text-center mb-2"></p>
+            <h3 id="quiz-question" class="text-xl font-bold mb-4 text-center text-gray-800"></h3>
+           
+            <div id="quiz-options" class="flex flex-col space-y-3 mb-6"></div>
+           
+            <!-- CORREÇÃO ESTRUTURAL: Novo div para controlar altura e flow do feedback, garantindo que o botão fique abaixo. -->
+            <div class="h-6 flex items-center justify-center mb-4">
+               <p id="quiz-feedback" class="text-center font-semibold"></p>
+            </div>
+           
+            <button id="next-question-btn" class="w-full bg-indigo-600 text-white font-bold py-2 rounded-lg hidden hover:bg-indigo-700 transition-colors">
+                Próxima Pergunta
+            </button>
+            <button onclick="document.getElementById('quiz-modal').classList.add('hidden')" class="absolute top-4 right-4 text-gray-400 hover:text-gray-800 transition-colors">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            </button>
+        </div>
+    </div>
+    
+    
+    <!-- <script src="cordova.js"></script> -->
+    <!-- Script principal sem Firebase -->
+    <script type="module">
+        // Variáveis globais e de estado do aplicativo
+       
+        // --- ESTRUTURA DE DADOS DAS FASES E SUBFASES ---
+        const ALL_PHASES = [
+            { id: 'household', name: 'Economia Doméstica', icon: '🏠', subphases: [
+                { id: 'h1', name: 'Como fazer o imposto de renda?', lessonContent: 'Aprenda a mapear todas as suas receitas e despesas para ter controle total sobre suas finanças.', quizzes: [
+                     { question: 'Qual o primeiro passo para declarar o imposto de renda?', options: ['Entrar no app da Receita Federal', 'Pagar um contador', 'Reunir os documentos necessários'], answer: 'Reunir os documentos necessários' },
+                                { question: 'Qual a principal diferença entre a declaração completa e a simplificada?', options: ['A completa permite mais deduções, e a simplificada aplica um desconto padrão.', 'A completa é feita online e a simplificada presencialmente', 'A completa é para PJ e a simplificada é para PF.'], answer: 'A completa permite mais deduções, e a simplificada aplica um desconto padrão.' },
+                                { question: 'Sob qual condição é obrigatório entregar a declaração do Imposto de Renda?', options: ['Quando a receita anual é superior a um valor determinado pela Receita Federal.', 'Quando você tem mais de um emprego.', 'Apenas se você investe em bolsa de valores.'], answer: 'Quando a receita anual é superior a um valor determinado pela Receita Federal.' },
+                                { question: 'Qual dos itens abaixo não é considerado uma despesa dedutível na declaração completa?', options: ['Gastos com educação', 'Doações para instituições de caridade', 'Despesas com viagens e lazer'], answer: 'Despesas com viagens e lazer' },
+                                { question: 'O que é a "malha fina"?', options: ['Um tipo de auditoria da Receita Federal para verificar inconsistências na declaração.', 'Um imposto adicional pago por quem atrasa a declaração.', 'O sistema de declaração online.'], answer: 'Um tipo de auditoria da Receita Federal para verificar inconsistências na declaração.' },
+                                { question: 'A declaração do Imposto de Renda no Brasil é anual. Qual o período de apuração dos rendimentos?', options: ['Janeiro a dezembro do ano anterior.','Janeiro a dezembro do ano atual.', 'Abril do ano atual a março do ano seguinte.'], answer: 'Janeiro a dezembro do ano anterior.' },
+                                { question: 'Um contribuinte que tem rendimento anual tributável de R$ 30.000,00 e despesas dedutíveis de R$ 8.000,00 deveria escolher qual modelo de declaração?', options: ['Completa, para pagar menos imposto.', 'Simplificada, para pagar menos imposto.', 'Ambas pagariam o mesmo valor.'], answer: 'Completa, para pagar menos imposto.' },
+                                { question: 'Qual é o papel do "Informe de Rendimentos" fornecido pelas empresas?', options: ['Ele serve para comprovar a contratação.', 'Ele resume todos os salários e retenções de imposto do funcionário para a declaração.', 'Ele é um documento opcional.'], answer: 'Ele resume todos os salários e retenções de imposto do funcionário para a declaração.' },
+                                { question: 'Se um contribuinte tem rendimento tributável de R$ 50.000,00 e opta pela declaração simplificada, qual o valor da dedução padrão?', options: ['R$ 5.000,00', 'R$ 10.000,00', 'R$ 15.000,00', 'R$ 20.000,00'], answer: 'R$ 10.000,00' },
+                                { question: 'Uma pessoa física recebe R$ 60.000,00 de salário e paga R$ 5.000,00 em despesas médicas dedutíveis e R$ 2.000,00 em pensão alimentícia. Se a dedução simplificada é de 20%, qual o benefício fiscal líquido de optar pelo modelo completo, considerando uma alíquota de 15%?', options: ['R$ 1.050,00', 'R$ 1.500,00', 'R$ 2.550,00', 'R$ 3.000,00'], answer: 'R$ 1.050,00' }
+                ]},
+                 { id: 'boleto', name: 'O que é um boleto?', lessonContent: "Boleto é um documento de cobrança muito utilizado no Brasil para permitir que uma pessoa ou empresa receba um pagamento por meio do sistema bancário. Ele reúne informações como dados do emissor, do pagador, o valor devido e a data de vencimento, além de apresentar um código de barras e uma linha digitável que identificam a cobrança. O boleto pode ser pago em bancos, casas lotéricas, aplicativos de pagamento e internet banking, e, caso seja quitado após o vencimento, normalmente implica acréscimo de juros e multa definidos pelo credor. É um meio de pagamento padronizado e regulamentado pela FEBRABAN, garantindo segurança e rastreabilidade nas transações.",
+             
+                            quizzes: [
+                                { question: 'Qual a diferença entre Cedente e Sacado?', options: ['Cedente é quem paga, Sacado é quem recebe', 'Cedente é o banco, Sacado é o cliente', 'Cedente é quem cobra, Sacado é quem paga'], answer: 'Cedente é quem cobra, Sacado é quem paga' },
+                                { question: 'Desde quando os boletos precisam ser registrados no Brasil?', options: ['2010', '2015', '2018'], answer: '2018' },
+                                { question: 'Qual a principal vantagem do boleto registrado sobre o sem registro?', options: ['Maior agilidade no pagamento', 'Maior segurança e rastreabilidade', 'Custo menor para a empresa'], answer: 'Maior segurança e rastreabilidade' },
+                                { question: 'O que é a "linha digitável"?', options: ['Um código de barras.', 'Uma sequência de números que representa o boleto.', 'O valor total a ser pago.'], answer: 'Uma sequência de números que representa o boleto.' },
+                                { question: 'Onde um boleto sem registro pode ser pago?', options: ['Em qualquer banco.', 'Apenas no banco emissor.', 'Em qualquer casa lotérica.'], answer: 'Apenas no banco emissor.' },
+                                { question: 'Qual a principal função do código de barras em um boleto?', options: ['Facilitar o pagamento manual.', 'Apenas para fins estéticos.', 'Permitir o pagamento por leitores automáticos.'], answer: 'Permitir o pagamento por leitores automáticos.' },
+                                { question: 'Se você paga um boleto após a data de vencimento, o que geralmente acontece?', options: ['O boleto é cancelado.', 'É necessário gerar um novo boleto.', 'Juros e multas podem ser aplicados.'], answer: 'Juros e multas podem ser aplicados.' },
+                                { question: 'Qual dos seguintes tipos de pagamento não possui uma linha digitável ou código de barras?', options: ['Boleto bancário.', 'PIX.', 'Carnê.'], answer: 'PIX.' },
+                                { question: 'Uma empresa que emite boletos sem registro enfrenta o risco de não receber o pagamento. Qual é a principal vantagem econômica para a empresa que decide usar boletos registrados, apesar de ter um custo de registro por boleto?', options: ['Receber o dinheiro mais rápido.', 'Aumentar a base de clientes.', 'Reduzir a inadimplência e o risco de calote.'], answer: 'Reduzir a inadimplência e o risco de calote.' },
+                                { question: 'O uso de boletos bancários pode ser mais vantajoso que o de cartões de crédito para um pequeno empresário, pois ele paga menos taxas. Qual o principal trade-off econômico dessa escolha?', options: ['A perda de vendas por falta de parcelamento.', 'O aumento de fraudes.', 'O custo do boleto é maior.'], answer: 'A perda de vendas por falta de parcelamento.' }
+                            ]
+                        },
+                 { id: 'credit-vs-debit', name: 'Cartão de crédito vs Cartão de Débito', lessonContent: "O cartão de crédito permite que a pessoa realize pagamentos mesmo sem ter saldo disponível na conta no momento da compra, pois o valor só será cobrado na fatura do mês seguinte. Trata-se de um cartão físico, geralmente de plástico, que contém chip, nome do titular, número, data de validade e código de segurança. Já o cartão de débito desconta automaticamente o valor da compra diretamente da conta bancária, permitindo o pagamento apenas até o limite do saldo disponível. É uma forma de pagamento que não gera fatura, pois a cobrança ocorre imediatamente.",
+                               
+                            quizzes: [
+                                { question: 'Qual cartão permite pagar sem ter saldo na conta no momento da compra?', options: ['Cartão de Débito', 'Cartão de Crédito', 'Ambos'], answer: 'Cartão de Crédito' },
+                                { question: 'O que o cartão de débito faz com o valor da compra?', options: ['Cria uma dívida', 'Deduz o valor da sua conta bancária', 'Adiciona o valor a uma fatura'], answer: 'Deduz o valor da sua conta bancária' },
+                                { question: 'Qual o principal benefício do cartão de crédito em relação ao de débito?', options: ['Evita dívidas', 'Possibilita parcelamento de compras', 'Não tem limite de gastos'], answer: 'Possibilita parcelamento de compras' },
+                                { question: 'O que é a "fatura" do cartão de crédito?', options: ['O limite de gastos do cartão.', 'O extrato mensal com todas as compras e valores a pagar.', 'Um boleto de cobrança.'], answer: 'O extrato mensal com todas as compras e valores a pagar.' },
+                                { question: 'Qual o papel do "limite de crédito"?', options: ['O valor máximo que pode ser gasto.', 'O valor mínimo que pode ser gasto.', 'O valor de juros do cartão.'], answer: 'O valor máximo que pode ser gasto.' },
+                                { question: 'O que acontece se você não pagar a fatura do cartão de crédito até o vencimento?', options: ['O cartão é bloqueado para sempre.', 'Juros rotativos e multas são cobrados.', 'A dívida é perdoada.'], answer: 'Juros rotativos e multas são cobrados.' },
+                                { question: 'O que significa "pagar o mínimo" da fatura do cartão?', options: ['Pagar apenas a parte principal da dívida.', 'Pagar apenas o valor mínimo estipulado pelo banco, o resto se torna dívida com juros.', 'Pagar apenas os juros.'], answer: 'Pagar apenas o valor mínimo estipulado pelo banco, o resto se torna dívida com juros.' },
+                                { question: 'O que o "score de crédito" mede?', options: ['Seu nível de endividamento.', 'Sua pontuação em um jogo de finanças.', 'A probabilidade de você pagar suas contas em dia.'], answer: 'A probabilidade de você pagar suas contas em dia.' },
+                                { question: 'Se um consumidor tem a opção de pagar uma compra de R$ 100,00 à vista com cartão de débito ou parcelar em 3 vezes sem juros com cartão de crédito, e ele tem uma conta remunerada que rende 1% ao mês, qual opção de pagamento é economicamente mais vantajosa?', options: ['Débito, pois o dinheiro sai da conta.', 'Crédito, pois o consumidor pode deixar o dinheiro rendendo na conta.', 'Ambos são equivalentes.'], answer: 'Crédito, pois o consumidor pode deixar o dinheiro rendendo na conta.' },
+                                { question: 'Uma família que vive no limite do seu orçamento mensal decide fazer uma compra grande e parcelá-la no cartão de crédito. Qual o principal risco econômico, considerando que a fatura já consome 30% do salário?', options: ['Deixar de poupar.', 'Entrar em uma espiral de juros rotativos e endividamento insustentável.', 'O cartão ser clonado.'], answer: 'Entrar em uma espiral de juros rotativos e endividamento insustentável.' }
+                            ]
+                        },
+                  { id: 'budget', name: 'Como criar um orçamento', lessonContent: 'O primeiro passo é anotar todas as fontes de renda (salário, mesada, trabalhos extras, etc.) e depois listar todas as despesas fixas (aluguel, contas, transporte) e variáveis (lazer, compras, alimentação fora de casa). Assim, você consegue visualizar para onde o dinheiro está indo.',
+                            quizzes: [
+                                { question: 'O que é um orçamento doméstico?', options: ['Uma lista de compras', 'Um plano financeiro para controlar gastos', 'Um registro de dívidas'], answer: 'Um plano financeiro para controlar gastos' },
+                                { question: 'Qual a regra básica do orçamento?', options: ['Gastar mais do que se ganha', 'Gastar menos do que se ganha', 'Poupar sempre 10% da renda'], answer: 'Gastar menos do que se ganha' },
+                                { question: 'Qual o primeiro passo para criar um orçamento?', options: ['Cortar todas as despesas supérfluas', 'Anotar e categorizar todos os seus gastos atuais', 'Pedir um aumento no trabalho'], answer: 'Anotar e categorizar todos os seus gastos atuais' },
+                                { question: 'Qual a principal diferença entre gastos fixos e variáveis?', options: ['Fixos são sempre maiores que os variáveis.', 'Fixos não mudam, variáveis podem mudar mês a mês.', 'Variáveis são sempre maiores que os fixos.'], answer: 'Fixos não mudam, variáveis podem mudar mês a mês.' },
+                                { question: 'O que são "receitas" em um orçamento?', options: ['O dinheiro que você recebe.', 'O dinheiro que você gasta.', 'Suas dívidas.'], answer: 'O dinheiro que você recebe.' },
+                                { question: 'Qual das seguintes despesas é considerada fixa?', options: ['Cinema e restaurantes', 'Aluguel ou prestação da casa', 'Compras de supermercado'], answer: 'Aluguel ou prestação da casa' },
+                                { question: 'O que a regra 50/30/20 de orçamento sugere?', options: ['50% para poupança, 30% para gastos, 20% para doações.', '50% para necessidades, 30% para desejos e 20% para poupança/investimento.', '50% para dívidas, 30% para investimentos, 20% para lazer.'], answer: '50% para necessidades, 30% para desejos e 20% para poupança/investimento.' },
+                                { question: 'Qual a principal função do registro de gastos em um orçamento?', options: ['Apenas ter um histórico de contas.', 'Identificar onde seu dinheiro está sendo gasto e encontrar oportunidades para economizar.', 'Pagar as contas mais rápido.'], answer: 'Identificar onde seu dinheiro está sendo gasto e encontrar oportunidades para economizar.' },
+                                { question: 'OBECON: Se um indivíduo tem uma renda de R$ 5.000,00, despesas fixas de R$ 3.000,00 e despesas variáveis de R$ 1.500,00, qual o valor que sobra para poupança?', options: ['R$ 500,00', 'R$ 1.000,00', 'R$ 1.500,00'], answer: 'R$ 500,00' },
+                                { question: 'OBECON: Um casal deseja economizar R$ 10.000,00 em um ano para uma viagem. Eles conseguiram reduzir R$ 200,00 por mês em despesas variáveis. Qual seria o valor mensal adicional que eles precisam economizar?', options: ['R$ 833,33', 'R$ 633,33', 'R$ 433,33', 'R$ 233,33'], answer: 'R$ 633,33' }
+                            ]
+                        },
+                  { id: 'savings', name: 'Importância da reserva de emergência', lessonContent: 'Ter uma reserva de emergência é importante porque garante segurança financeira em situações imprevistas, como perda de emprego, problemas de saúde ou despesas inesperadas. Ela evita o endividamento e traz mais tranquilidade, já que você sabe que tem um valor guardado para se proteger em momentos difíceis. ',
+                            quizzes: [
+                                { question: 'Qual o principal objetivo de uma reserva de emergência?', options: ['Fazer uma viagem', 'Cobrir despesas inesperadas', 'Comprar um carro'], answer: 'Cobrir despesas inesperadas' },
+                                { question: 'Por que a reserva de emergência deve ser de fácil acesso (liquidez)?', options: ['Para ser usada em qualquer situação', 'Para que possa ser resgatada rapidamente', 'Para que renda mais juros'], answer: 'Para que possa ser resgatada rapidamente' },
+                                { question: 'Um bom valor para a reserva de emergência é igual a:', options: ['Seis a doze meses de despesas mensais', 'Um mês de despesas', 'O valor total de suas dívidas'], answer: 'Seis a doze meses de despesas mensais' },
+                                { question: 'Qual o local ideal para guardar a reserva de emergência?', options: ['Conta corrente', 'CDB com liquidez diária', 'Ações de empresas'], answer: 'CDB com liquidez diária' },
+                                { question: 'Qual dos seguintes eventos a reserva de emergência foi criada para cobrir?', options: ['A compra de um novo smartphone.', 'A troca de um carro quebrado.', 'O investimento em um novo negócio.'], answer: 'A troca de um carro quebrado.' },
+                                { question: 'Se você tem despesas mensais de R$ 3.000,00 e quer uma reserva de 6 meses, qual o valor ideal?', options: ['R$ 3.000,00', 'R$ 18.000,00', 'R$ 36.000,00'], answer: 'R$ 18.000,00' },
+                                { question: 'A reserva de emergência é feita para proteger contra o quê?', options: ['Inflação.', 'Eventos inesperados, como perda de emprego ou doença.', 'Decisões de investimento ruins.'], answer: 'Eventos inesperados, como perda de emprego ou doença.' },
+                                { question: 'Qual é o erro mais comum ao montar uma reserva de emergência?', options: ['Investir em ativos de alta volatilidade.', 'Deixar o dinheiro parado na conta corrente sem render.', 'Ter um valor muito baixo.'], answer: 'Deixar o dinheiro parado na conta corrente sem render.' },
+                                { question: 'Um investidor tem R$ 20.000,00 em uma reserva de emergência em um CDB com liquidez diária que paga 100% do CDI, e a inflação está em 5% ao ano. Qual é o retorno real do seu investimento em um ano se o CDI for 12%?', options: ['2%', '5%', '7%', '12%'], answer: '7%' },
+                                { question: 'Um indivíduo perdeu o emprego e tem uma reserva de emergência que cobre 6 meses de suas despesas de R$ 4.000,00 por mês. Após 3 meses desempregado, ele gasta 50% de sua reserva para comprar um carro. Qual o principal risco econômico dessa decisão?', options: ['Ele perdeu os juros da reserva.', 'Ele pode ficar sem dinheiro para as despesas básicas caso o desemprego se estenda.', 'O valor do carro pode cair.'], answer: 'Ele pode ficar sem dinheiro para as despesas básicas caso o desemprego se estenda.' }
+                            ]
+                        },
+
+                { id: 'debt', name: 'Lidando com dívidas', lessonContent: 'Para lidar com dívidas, o primeiro passo é organizar todas elas em uma lista com valores, prazos, juros e credores. Em seguida, dê prioridade para as dívidas mais caras (com juros altos, como cartão de crédito e cheque especial), enquanto mantém o pagamento mínimo das demais. Também é importante tentar negociar com os credores, buscando descontos, parcelamentos ou melhores condições. ',
+                            quizzes: [
+                                { question: 'Qual é a melhor forma de lidar com dívidas?', options: ['Ignorá-las', 'Contrair novas dívidas', 'Criar um plano de pagamento'], answer: 'Criar um plano de pagamento' },
+                                { question: 'O que são juros compostos em relação às dívidas?', options: ['Juros cobrados sobre o valor original', 'Juros sobre juros', 'Uma forma de desconto de juros'], answer: 'Juros sobre juros' },
+                                { question: 'Qual o tipo de dívida mais perigoso?', options: ['Dívidas de juros baixos', 'Dívidas com cartão de crédito e cheque especial', 'Dívidas com financiamento imobiliário'], answer: 'Dívidas com cartão de crédito e cheque especial' },
+                                { question: 'O que é "negociar uma dívida"?', options: ['Pagar o valor total de uma vez.', 'Obter condições de pagamento mais favoráveis com o credor.', 'Pegar um novo empréstimo para pagar o antigo.'], answer: 'Obter condições de pagamento mais favoráveis com o credor.' },
+                                { question: 'O que é "dívida de consumo"?', options: ['Dívida para comprar imóveis.', 'Dívida para comprar bens não essenciais, como eletrônicos e roupas.', 'Dívida para investir em educação.'], answer: 'Dívida para comprar bens não essenciais, como eletrônicos e roupas.' },
+                                { question: 'Qual a principal vantagem da "consolidação de dívidas"?', options: ['Aumentar o número de credores.', 'Simplificar o pagamento, agrupando várias dívidas em uma só, geralmente com juros menores.', 'Evitar pagar a dívida.'], answer: 'Simplificar o pagamento, agrupando várias dívidas em uma só, geralmente com juros menores.' },
+                                { question: 'Qual é o conceito de "bola de neve" para quitar dívidas?', options: ['Pagar as dívidas do maior para o menor valor.', 'Pagar as dívidas do menor para o maior valor, para ter motivação com as quitações rápidas.', 'Pagar as dívidas com os juros mais altos primeiro.'], answer: 'Pagar as dívidas do menor para o maior valor, para ter motivação com as quitações rápidas.' },
+                                { question: 'Qual a diferença entre "dívida boa" e "dívida ruim"?', options: ['Dívida boa é aquela que gera valor (ex: financiamento imobiliário), enquanto a ruim consome valor (ex: cartão de crédito).', 'Toda dívida é ruim.', 'Dívida boa é a de juros baixos, e a ruim é de juros altos.'], answer: 'Dívida boa é aquela que gera valor (ex: financiamento imobiliário), enquanto a ruim consome valor (ex: cartão de crédito).' },
+                                { question: 'Um indivíduo tem uma dívida de R$ 5.000,00 no cartão de crédito com juros de 10% ao mês. Ele decide usar o método "bola de neve" para quitar outra dívida de R$ 1.000,00 com juros de 5% ao mês. Qual o principal erro econômico dessa estratégia?', options: ['Focar na dívida menor ignora os juros mais altos da dívida de R$ 5.000,00, que cresce mais rapidamente.', 'O método "bola de neve" não funciona para dívidas.', 'Ele deveria ter pedido um empréstimo para quitar tudo.'], answer: 'Focar na dívida menor ignora os juros mais altos da dívida de R$ 5.000,00, que cresce mais rapidamente.' },
+                                { question: 'Um consumidor tem um empréstimo de R$ 10.000,00 a juros de 2% ao mês. Qual seria o valor total pago após 3 meses, se os juros forem compostos?', options: ['R$ 10.600,00', 'R$ 10.612,08', 'R$ 11.000,00', 'R$ 11.060,00'], answer: 'R$ 10.612,08' }
+                            ]
+                        },
+            ]},
+            { id: 'political', name: 'Economia Política', icon: '🏛️', subphases: [
+                 { id: 'theory',name: 'Principais teóricos', lessonContent: 'Essa fase trata sobre os principais teóricos da economia moderna. Entre eles, Adam Smith - pai da economia moderna e do liberalismo clássico, Karl Marx - o teórico comunitsa que escreveu obras como: o capital e o maifest comunista, Jonh Keynes, fundador do Keynesianismo, ou social democracia, que defende a intervenção na economia somnte em casos de crise e Milton Friedman, patrono do monetarismo e principal teórico neo-liberal.',
+                            quizzes: [
+                                { question: 'Quem é considerado o pai da economia moderna?', options: ['Adam Smith', 'Karl Marx', 'John Keynes'], answer: 'Adam Smith' },
+                                { question: 'Qual economista defendeu que o governo deve intervir na economia para mitigar crises?', options: ['Adam Smith', 'Karl Marx', 'John Keynes'], answer: 'John Keynes' },
+                                { question: 'O que a "mão invisível" de Adam Smith descreve no contexto econômico?', options: ['O controle total do Estado sobre a produção.', 'Como o interesse próprio individual pode beneficiar a sociedade como um todo.', 'O papel das empresas multinacionais na economia global.'], answer: 'Como o interesse próprio individual pode beneficiar a sociedade como um todo.' },
+                                { question: 'Qual teórico defende uma sociedade sem classes e sem propriedade privada?', options: ['Milton Friedman', 'Adam Smith', 'Karl Marx'], answer: 'Karl Marx' },
+                                { question: 'O que Milton Friedman defendeu em relação à política monetária?', options: ['O controle total do governo.', 'O uso de juros para manipular a economia.', 'Uma política monetária estável e previsível.'], answer: 'Uma política monetária estável e previsível.' },
+                                { question: 'Qual a principal diferença entre a visão de Marx e a de Adam Smith?', options: ['Marx defendia o livre mercado e Smith o socialismo.', 'Marx focava na luta de classes, enquanto Smith focava nos benefícios do livre comércio.', 'Ambos defendiam o mesmo sistema econômico.'], answer: 'Marx focava na luta de classes, enquanto Smith focava nos benefícios do livre comércio.' },
+                                { question: 'A teoria do valor-trabalho está associada a qual pensador?', options: ['John Keynes', 'Adam Smith', 'Karl Marx'], answer: 'Karl Marx' },
+                                { question: 'Qual teoria econômica sugere que a inflação é sempre um fenômeno monetário?', options: ['Keynesianismo', 'Liberalismo Clássico', 'Monetarismo (Friedman)'], answer: 'Monetarismo (Friedman)' },
+                                { question: 'Se um governo decide aumentar os gastos públicos para combater uma recessão, qual a justificativa teórica por trás dessa ação?', options: ['Monetarismo, para controlar a oferta de dinheiro.', 'Keynesianismo, para estimular a demanda agregada.', 'Liberalismo clássico, para promover a concorrência.'], answer: 'Keynesianismo, para estimular a demanda agregada.' },
+                                { question: ' Qual dos teóricos abaixo provavelmente concordaria que uma crise econômica não deve ser combatida por intervenção do governo e que o mercado se ajusta sozinho?', options: ['John Keynes', 'Karl Marx', 'Friedrich Hayek (Escola Austríaca)'], answer: 'Friedrich Hayek (Escola Austríaca)' }
+                            ]
+                        },
+                        { id: 'keynesianism', name: 'Keynesianismo',lessonContent: 'Jonh Keynes foi um teórico econômico do século XX, que ganhou grande notoriedade após a crise de 29, já que ele previue ajudou na contenção e mitigação das consequências da mais devastadora crise econômica da história humana. ',
+                            quizzes: [
+                                { question: 'O que o Keynesianismo defende?', options: ['Livre mercado total', 'Intervenção do governo em crises', 'Economia 100% privada'], answer: 'Intervenção do governo em crises' },
+                                { question: 'Segundo Keynes, qual é a principal causa do desemprego em massa?', options: ['Falta de qualificação dos trabalhadores.', 'Salários muito altos.', 'Baixa demanda agregada.'], answer: 'Baixa demanda agregada.' },
+                                { question: 'Qual política fiscal é recomendada por Keynes em tempos de recessão?', options: ['Redução de gastos públicos e aumento de impostos.', 'Aumento de gastos públicos e redução de impostos.', 'Manter o orçamento equilibrado.'], answer: 'Aumento de gastos públicos e redução de impostos.' },
+                                { question: 'O que é o "multiplicador keynesiano"?', options: ['A capacidade de um investimento privado gerar vários empregos.', 'O efeito de que um aumento de gastos públicos gera um aumento ainda maior na renda nacional.', 'O efeito de que a inflação sempre aumenta, gerando um ciclo vicioso de aumento de custo e demanda.'], answer: 'O efeito de que um aumento de gastos públicos gera um aumento ainda maior na renda nacional.' },
+                                { question: 'Qual é o principal foco da política econômica keynesiana?', options: ['Ofertismo', 'Demanda agregada', 'Redução de impostos'], answer: 'Demanda agregada' },
+                                { question: 'Uma política anticíclica, segundo Keynes, é aquela que...', options: ['Estimular o crescimento artificialmente durante períodos de crise, e aumentar impostos para gerar reservas durante booms econômicos, limitando seus efeitos.', 'Investir dinheiro público durante os booms para que assim, o boom nunca termine e não ocorra mais nenhuma recessão', 'Aumentar impostos e gastos a todo tempo mantendo sempre um forte domínio do governo e uma economia pouco inflacionada.'], answer: 'Estimular o crescimento artificialmente durante períodos de crise, e aumentar impostos para gerar reservas durante booms econômicos, limitando seus efeitos.' },
+                                { question: 'O que Keynes argumentou sobre a "Armadilha de Liquidez"?', options: ['A política monetária é sempre eficaz.', 'A política monetária pode ser ineficaz em uma recessão profunda, pois as pessoas preferem manter dinheiro em vez de investir.', 'A política fiscal não funciona.'], answer: 'A política monetária pode ser ineficaz em uma recessão profunda, pois as pessoas preferem manter dinheiro em vez de investir.' },
+                                { question: 'O que Keynes acreditava ser a principal função do governo em uma economia de mercado?', options: ['Intervir minimamente para garantir a liberdade de mercado.', 'Coletar impostos e distribuir riqueza.', 'Garantir estabilidade e emprego pleno através de intervenções.'], answer: 'Garantir estabilidade e emprego pleno através de intervenções.' },
+                                { question: 'Uma crise de confiança leva a uma queda no investimento privado. Segundo a teoria keynesiana, qual seria a reação apropriada do governo para restaurar o emprego?', options: ['Cortar gastos públicos para economizar recursos.', 'Aumentar a taxa de juros para atrair investidores.', 'Implementar projetos de infraestrutura para gerar emprego e renda.'], answer: 'Implementar projetos de infraestrutura para gerar emprego e renda.' },
+                                { question: 'O "animal spirits" (espíritos animais) de Keynes se refere a:', options: ['O papel do governo em guiar a economia.', 'O comportamento irracional e emocional dos agentes econômicos que pode causar flutuações de mercado.', 'Aos conceitos de bullish market e de bearish market.'], answer: 'O comportamento irracional e emocional dos agentes econômicos que pode causar flutuações de mercado.' }
+                            ]
+                        },
+                        { id: 'liberalism', name: 'Liberalismo Clássico',lessonContent: 'O liberalismo clássico foi criado no contexto do iluminismo, sendo uma reação ao sistema de controle total da economia pelo governo praticado pelos monarcas absolutistas. Criou vários conceitos universais e essenciais como a mão invisível do mercado.',
+                            quizzes: [
+                                { question: 'Qual o principal conceito do liberalismo clássico?', options: ['Controle total do Estado', 'Fraternidade, igualidade, liberdade', 'Liberdade individual e econômica'], answer: 'Liberdade individual e econômica' },
+                                { question: 'Qual a principal ideia por trás do laissez-faire?', options: ['O governo deve regular todos os preços.', 'O mercado deve funcionar sem intervenção estatal.', 'As empresas devem ser estatais.'], answer: 'O mercado deve funcionar sem intervenção estatal.' },
+                                { question: 'Para um liberal clássico, o papel do Estado na economia deve ser:', options: ['Mínimo, focado em proteger direitos e a propriedade.', 'Máximo, controlando todos os setores.', 'Ineficiente por natureza.'], answer: 'Mínimo, focado em proteger direitos e a propriedade.' },
+                                { question: 'Qual é o principal argumento de Adam Smith contra o mercantilismo?', options: ['O mercantilismo gerava muito desemprego.', 'O mercantilismo era injusto com os pobres.', 'O livre comércio e a especialização aumentam a riqueza das nações.'], answer: 'O livre comércio e a especialização aumentam a riqueza das nações.' },
+                                { question: 'O que significa a "mão invisível"?', options: ['A capacidade do Estado em controlar a economia, impedindo crises e inflação.', 'Uma força que guia o mercado para o equilíbrio, mesmo com agentes buscando o interesse próprio.', 'A regulação do governo sobre os mercados, para defender o consumidor.'], answer: 'Uma força que guia o mercado para o equilíbrio, mesmo com agentes buscando o interesse próprio.' },
+                                { question: 'Qual dos seguintes pensadores não é associado ao liberalismo clássico?', options: ['Adam Smith', 'David Ricardo', 'Karl Marx'], answer: 'Karl Marx' },
+                                { question: 'O que o liberalismo clássico considera o motor da economia?', options: ['A intervenção do Estado.', 'A cooperação entre classes.', 'A competição entre os agentes econômicos.'], answer: 'A competição entre os agentes econômicos.' },
+                                { question: 'No contexto do liberalismo, qual é a principal função do Estado?', options: ['Prover saúde e educação.', 'Promover um bem estar-nacional, o que geraria um pleno-emprego e consequentemente um crescimento econômico.', 'Promover a defesa nacional, a justiça e proteger a propriedade privada.'], answer: 'Promover a defesa nacional, a justiça e proteger a propriedade privada.' },
+                                { question: 'Um país que adere aos princípios do liberalismo clássico decidiria, em relação à produção e exportação de bens:', options: ['Subsidia empresas locais para que possam competir no mercado externo.', 'Cria barreiras tarifárias para proteger a indústria nacional.', 'Reduz tarifas e remover restrições para promover o livre comércio.'], answer: 'Reduz tarifas e remover restrições para promover o livre comércio.' },
+                                { question: ' "O "Paradoxo do Valor", que questiona por que a água (essencial) é menos valorizada que o diamante (não essencial), foi resolvido pela Escola Austríaca de pensamento econômico. Qual princípio fundamental do liberalismo a solução se baseia?', options: ['A teoria do valor-trabalho.', 'O valor de um bem é subjetivo, baseado em sua utilidade marginal para o indivíduo.', 'O valor de um bem é definido pelo seu custo de produção.'], answer: 'O valor de um bem é subjetivo, baseado em sua utilidade marginal para o indivíduo.' }
+                            ]
+                        },
+                        { id: 'austrian', name: 'Escola Austríaca', lessonContent: 'A Escola Austríaca é uma corrente de pensamento econômico que surgiu na Áustria, em Viena, no século XIX, a partir de economistas como Carl Menger. Ela foca na subjetividade e no protagonismo do indivíduo na economia, sendo seu principal teórico Fredreick Hayek.',
+                            quizzes: [
+                                { question: 'Qual característica da Escola Austríaca?', options: ['Ênfase na ação individual', 'Planejamento centralizado por oligarquias', 'Teoria do valor trabalho'], answer: 'Ênfase na ação individual' },
+                                { question: 'Qual o principal argumento da Escola Austríaca contra o socialismo?', options: ['A competição é ruim.', 'O cálculo econômico é impossível sem preços de mercado.', 'É uma teoria ultrapassada.'], answer: 'O cálculo econômico é impossível sem preços de mercado.' },
+                                { question: 'Ludwig von Mises argumentava que a intervenção do Estado leva a...', options: ['Um aumento da prosperidade.', 'Crescimento equilibrado e sustentável.', 'Mal-investimentos e ciclos econômicos de expansão e busto.'], answer: 'Mal-investimentos e ciclos econômicos de expansão e busto.' },
+                                { question: 'O que a teoria da "utilidade marginal" afirma?', options: ['A utilidade de um bem diminui à medida que mais unidades são consumidas.', 'O valor de um produto é fixo', 'O valor é determinado pelo custo de produção, que por conseguinte determina quantas vezes alguem vai querer comprar o produto.'], answer: 'A utilidade de um bem diminui à medida que mais unidades são consumidas.' },
+                                { question: 'Qual é o principal método de estudo da Escola Austríaca?', options: ['Econometria e estatística.', 'Análise histórica e qualitativa.', 'Praxeologia, o estudo da ação humana.'], answer: 'Praxeologia, o estudo da ação humana.' },
+                                { question: 'A Escola Austríaca defende que os ciclos econômicos são causados por:', options: ['Flutuações de mercado.', 'A intervenção dos bancos centrais, que manipulam as taxas de juros.', 'A falta de regulamentação.'], answer: 'A intervenção dos bancos centrais, que manipulam as taxas de juros.' },
+                                { question: 'Qual dos seguintes economistas não é da Escola Austríaca?', options: ['Friedrich Hayek', 'Ludwig von Mises', 'Milton Friedman'], answer: 'Milton Friedman' },
+                                { question: 'O que o conceito de "conhecimento disperso" de Hayek significa?', options: ['O conhecimento científico é difícil de ser obtido.', ' Que o conhecimento sobre econômia está disperso e mal distribuído entre classes, mantendo ciclos de privilégio', 'O conhecimento sobre a economia está espalhado entre milhões de indivíduos, tornando o planejamento central inviável.'], answer: 'O conhecimento sobre a economia está espalhado entre milhões de indivíduos, tornando o planejamento central inviável.' },
+                                { question: 'Se o Banco Central de um país artificialmente baixa a taxa de juros para estimular a economia, como a Escola Austríaca prevê o desfecho desse cenário?', options: ['Um aumento sustentável do investimento e emprego.', 'A inflação será controlada.', 'Uma bolha econômica e mal-investimentos, que inevitavelmente levarão a uma crise.'], answer: 'Uma bolha econômica e mal-investimentos, que inevitavelmente levarão a uma crise.' },
+                                { question: 'Em uma economia com planejamento central, a ausência de preços de mercado para os bens de capital impede o quê, segundo Ludwig von Mises?', options: ['A distribuição de riqueza.', 'A capacidade de a economia produzir.', 'O cálculo econômico racional para alocar recursos de forma eficiente.'], answer: 'O cálculo econômico racional para alocar recursos de forma eficiente.' }
+                            ]
+                        },
+                        { id: 'neoliberalism', name: 'Neo-Liberalismo',lessonContent: 'Entenda o ressurgimento de ideias liberais no século XX, com figuras como Milton Friedman, Margaret Tatcher e Ronald Reagen. Entenda também o sistema que dita as relações econômicas do mercado financeiro atual.',
+                            quizzes: [
+                                { question: 'O que o neoliberalismo prioriza?', options: ['Privatização e desregulamentação', 'Crescimento do setor público', 'Fechamento de mercados'], answer: 'Privatização e desregulamentação' },
+                                { question: 'O que a desregulamentação implica?', options: ['Mais controle do governo', 'Redução das barreiras à entrada de novas empresas', 'Incentivo a monopólios de corporações alinhadas ao governo'], answer: 'Redução das barreiras à entrada de novas empresas' },
+                                { question: 'O neoliberalismo defende que a inflação é causada principalmente por:', options: ['Excesso de demanda agregada.', 'Falta de investimentos.', 'Políticas monetárias e fiscais expansionistas.'], answer: 'Políticas monetárias e fiscais expansionistas.' },
+                                { question: 'O que a privatização significa?', options: ['O governo assume o controle de empresas privadas.', 'Empresas estatais são doadas para o setor privado.', 'Empresas estatais são vendidas para o setor privado.'], answer: 'Empresas estatais são vendidas para o setor privado.' },
+                                { question: 'Qual das seguintes políticas é um exemplo de neoliberalismo?', options: ['Aumento de impostos sobre grandes fortunas.', 'Aplicação de tarifas para aumentar a manufatura nacional', 'Abertura de mercados para o comércio internacional.'], answer: 'Abertura de mercados para o comércio internacional.' },
+                                { question: 'Qual o papel do Estado na visão neoliberal?', options: ['Controlador da economia.', 'Fornecedor de todos os serviços públicos.', 'Garantidor de estabilidade e de um ambiente de mercado competitivo.'], answer: 'Garantidor de estabilidade e de um ambiente de mercado competitivo.' },
+                                { question: 'Em relação à política fiscal, o que o neoliberalismo geralmente defende?', options: ['Aumento dos gastos públicos.', 'Orçamento equilibrado e controle do endividamento público.', 'Aumento de impostos.'], answer: 'Orçamento equilibrado e controle do endividamento público.' },
+                                { question: 'Qual das seguintes organizações internacionais é frequentemente associada à promoção de políticas neoliberais?', options: ['A ONU (Organização das Nações Unidas).', 'O NBD (Novo Banco de Desenvolvimento).', 'O FMI (Fundo Monetário Internacional).'], answer: 'O FMI (Fundo Monetário Internacional).' },
+                                { question: 'Um país em desenvolvimento, enfrentando uma alta dívida pública, é aconselhado pelo FMI a adotar políticas de ajuste fiscal e privatizações. Qual seria o principal objetivo econômico dessas medidas?', options: ['Estimular o consumo interno.', 'Democratizar o acesso aos produtos que eram monopolizados por estatais', 'Melhorar a credibilidade do país no mercado internacional e atrair investimentos.'], answer: 'Melhorar a credibilidade do país no mercado internacional e atrair investimentos.' },
+                                { question: 'O neoliberalismo, como doutrina de política econômica, foi popularizado a partir de qual década?', options: ['1940', '1960', '1980', '2000'], answer: '1980' }
+                            ]
+                        },
+                        { id: 'communism', name: 'Comunismo', lessonContent: 'Aprenda sobre um dos sistemas mais controversos da atualidade, e vá além do senso comum, entendendo os conceitos de obras como: "O Capital"e "O manifesto comunista"',
+                            quizzes: [
+                                { question: 'Qual é o objetivo final do comunismo?', options: ['Criação de classes sociais', 'Sociedade sem Estado e sem classes', 'Fortalecimento do setor privado'], answer: 'Sociedade sem Estado e sem classes' },
+                                { question: 'O que Karl Marx chamava de "luta de classes"?', options: ['O conflito entre a burguesia e o proletariado', 'A competição entre classes de empresas.', 'A disputa por diferentes classes de recursos naturais'], answer: 'O conflito entre a burguesia e o proletariado' },
+                                { question: 'A teoria do "valor-trabalho" de Marx afirma que o valor de uma mercadoria é determinado por:', options: ['A demanda do mercado, por exemplo a raridade de algo', 'A utilidade do produto e sua real necessidade.', 'A quantidade de trabalho socialmente necessário para produzi-la'], answer: 'A quantidade de trabalho socialmente necessário para produzi-la' },
+                                { question: 'Qual dos seguintes conceitos não está associado ao comunismo?', options: ['Propriedade privada dos meios de produção.', 'Propriedade coletiva.', 'Fim do Estado.'], answer: 'Propriedade privada dos meios de produção.' },
+                                { question: 'O que é "mais-valia" na teoria marxista?', options: ['O valor do trabalho não pago que o trabalhador gera e que é apropriado pelo capitalista.', 'O lucro total de um burguês, sem contar com os ajustes salariais necessários para estimular o pleno-emprego.', 'A diferença entre o preço de venda e o custo de produção.'], answer: 'O valor do trabalho não pago que o trabalhador gera e que é apropriado pelo capitalista.' },
+                                { question: 'Qual o papel do "proletariado" na teoria comunista?', options: ['A classe social que detém os meios de produção.', 'A classe trabalhadora que vende sua força de trabalho.', 'A classe dominante.'], answer: 'A classe trabalhadora que vende sua força de trabalho.' },
+                                { question: 'O que a teoria marxista prevê que acontecerá com o capitalismo?', options: ['Ele se tornará mais justo com o tempo, se reformando com sucesso.', 'Ele se manterá estável para sempre, mantendo a ordem mundial e o establishment.', 'Ele entrará em colapso devido às suas contradições internas.'], answer: 'Ele entrará em colapso devido às suas contradições internas.' },
+                                { question: 'No comunismo, quem controla os meios de produção?', options: ['Uma elite política.', 'O Estado.', 'A comunidade ou a sociedade como um todo.'], answer: 'A comunidade ou a sociedade como um todo.' },
+                                { question: 'Segundo Marx, o que leva à "alienação" do trabalhador na sociedade capitalista?', options: ['A falta de salário, que gera uma preguiça no trabalho.', 'A separação do trabalhador dos produtos que ele produz e do controle sobre seu próprio trabalho.', 'A falta de educação, o que gera uma precarização do trabalho.'], answer: 'A separação do trabalhador dos produtos que ele produz e do controle sobre seu próprio trabalho.' },
+                                { question: 'Um dos principais problemas econômicos de um sistema de planejamento central, como no comunismo, é a falta de sinais de preços. Como essa ausência afeta a alocação de recursos?', options: ['Facilita a alocação, pois o governo decide tudo.', 'Impede a alocação eficiente de recursos, pois não há informações sobre escassez e demanda.', 'Não afeta a alocação, pois a oferta é fixa.'], answer: 'Impede a alocação eficiente de recursos, pois não há informações sobre escassez e demanda.' }
+                            ]
+                        }
+                    ]
+                },
+            { id: 'micro', name: 'Inflação', icon: '📈', subphases: [
+                 { id: 'concept', name: 'O que é inflação?',lessonContent: 'Essa fase testa seus conhecimentos sobre um fenômeno recorrente e corriqueiro que impacta a vida de todos que vivem em sociedade. É um dos tópicos mais discutidos da atualidade, e causa disputas constantemente.',
+                            quizzes: [
+                                { question: 'O que a inflação representa?', options: ['Aumento geral dos preços', 'Queda dos juros', 'Aumento de salários'], answer: 'Aumento geral dos preços' },
+                                { question: 'Qual o efeito da inflação sobre o valor real do dinheiro?', options: ['Aumenta o valor', 'Não impacta no valor real do dinheiro, mas sim na quantidade e importância do dinheiro', 'Diminui o poder de compra'], answer: 'Diminui o poder de compra' },
+                                { question: 'A deflação, o oposto da inflação, é sempre benéfica para a economia?', options: ['Sim, pois os preços caem.', 'Sim, pois faz com que os consumidores gastem menos e consequentemente as empresas também', 'Não, pode gerar um ciclo vicioso de queda de preços e consumo.'], answer: 'Não, pode gerar um ciclo vicioso de queda de preços e consumo.' },
+                                { question: 'Se a inflação foi de 10% em um ano, o que aconteceu com os preços?', options: ['Subiram 10% em média.', 'Caíram 10% em média.', 'Ficaram estáveis.'], answer: 'Subiram 10% em média.' },
+                                { question: 'Qual dos grupos abaixo é mais prejudicado pela inflação?', options: ['Credores com dívidas fixas.', 'Devedores.', 'Pessoas com renda variável.'], answer: 'Credores com dívidas fixas.' },
+                                { question: 'Qual a principal causa da hiperinflação?', options: ['Aumento da produção.', 'Aumento da demanda.', 'Emissão de dinheiro sem lastro.'], answer: 'Emissão de dinheiro sem lastro.' },
+                                { question: 'O que acontece com os salários se a inflação for maior que o reajuste salarial?', options: ['O poder de compra aumenta.', 'O poder de compra diminui.', 'O poder de compra permanece o mesmo.'], answer: 'O poder de compra diminui.' },
+                                { question: 'O que significa o termo "poder de compra"?', options: ['A quantidade de dinheiro que você tem.', 'A capacidade de uma unidade de moeda de comprar bens e serviços.', 'A quantidade de bens que você pode produzir.'], answer: 'A capacidade de uma unidade de moeda de comprar bens e serviços.' },
+                                { question: 'Se o preço de um pãozinho era R$ 0,50 e um ano depois passou a ser R$ 0,60, qual foi a taxa de inflação nesse período, considerando apenas esse item?', options: ['10%', '20%', '15%', '30%'], answer: '20%' },
+                                { question: 'Uma economia está em deflação. Qual o principal risco econômico desse cenário?', options: ['Aumento do consumo.', 'Atraso nas compras e investimentos.', 'Aumento de salários.'], answer: 'Atraso nas compras e investimentos.' }
+                            ]
+                        },
+                        { id: 'causes', name: 'Causas da inflação',lessonContent: 'Existem três principais causas de inflação: inflação de demanda, que é causada por um aumento da demanda, sem um subsequente aumento da oferta, inflação de custos, que é causado por um aumento de salários e de commodities, e inflação monetária quando há um excesso de dinheiro circulando.',
+                            quizzes: [
+                                { question: 'Uma causa comum da inflação é...', options: ['Aumento da demanda por produtos.', 'Aumento da demanda e da oferta', 'Diminuição do dinheiro em circulação'], answer: 'Aumento da demanda por produtos.' },
+                                { question: 'A inflação de custos ocorre quando...', options: ['O governo gasta mais do que arrecada, o que causa um aumento de custos.', 'Aumentos nos salários e no preço de materiais básicos.', 'A população tem mais dinheiro para gastar, pois está recebendo um maior salário.'], answer: 'Aumentos nos salários e no preço de materiais básicos.' },
+                                { question: 'A "espiral inflacionária" é um ciclo vicioso que envolve:', options: [' Apenas preços de produtos.', 'Preços e salários.', 'Preços de importação.'], answer: 'Preços e salários.' },
+                                { question: 'O que pode causar a inflação de demanda?', options: ['Aumento do salário mínimo.', 'Uma crise de oferta.', 'Uma redução nos gastos do governo.'], answer: 'Aumento do salário mínimo.' },
+                                { question: 'Qual o principal fator que leva à inflação de custos?', options: ['Aumento da demanda.', 'Aumento do preço do petróleo ou de matérias-primas.', 'Aumento da produção.'], answer: 'Aumento do preço do petróleo ou de matérias-primas.' },
+                                { question: 'Qual o tipo de inflação que ocorre quando o aumento da oferta de dinheiro é maior que o aumento da produção?', options: ['Inflação de demanda.', 'Inflação de custos.', 'Inflação monetária.'], answer: 'Inflação monetária.' },
+                                { question: 'Quando há uma expectativa de que os preços vão subir, as pessoas tendem a...?', options: ['Comprar menos.', 'Atrasar compras para esperar os preços subirem.', 'Antecipar as compras, o que pode acelerar a inflação.'], answer: 'Antecipar as compras, o que pode acelerar a inflação.' },
+                                { question: 'Um aumento dos impostos sobre as empresas pode levar a que tipo de inflação?', options: ['Inflação de demanda.', 'Inflação de custos.', 'Inflação inercial.'], answer: 'Inflação de custos.' },
+                                { question: 'Uma greve de caminhoneiros paralisa o transporte de mercadorias no país. Qual tipo de inflação é mais provável que ocorra devido a esse evento?', options: ['Inflação de demanda, pois o consumo aumenta.', 'Deflação, pois a economia desacelera', 'Inflação de custos, pois o transporte e o preço dos produtos subiram.'], answer: 'Inflação de custos, pois o transporte e o preço dos produtos subiram.' },
+                                { question: 'O "choque de oferta" é uma causa de inflação que se manifesta como:', options: ['Um aumento súbito e inesperado no preço de um insumo básico, como o petróleo.', 'Um aumento súbito na demanda por um produto.', 'Um aumento súbito no salário.'], answer: 'Um aumento súbito e inesperado no preço de um insumo básico, como o petróleo.' }
+                            ]
+                        },
+                        { id: 'types', name: 'Tipos de inflação',lessonContent: 'A inflação pode assumir diferentes formas. A estagflação ocorre quando há inflação alta junto com estagnação econômica e desemprego elevado. A hiperinflação é caracterizada por aumentos extremamente rápidos e descontrolados nos preços, corroendo totalmente o valor da moeda. Já a deflação é o oposto, quando há queda generalizada dos preços, muitas vezes associada a crises econômicas. Além disso, existem a inflação de demanda e a inflação de custos, ligadas a consumo excessivo ou aumento nos gastos de produção.',
+                            quizzes: [
+                                { question: 'Qual tipo de inflação é causada por um aumento nos custos de produção?', options: ['Inflação de demanda', 'Inflação inercial', 'Inflação de custos'], answer: 'Inflação de custos' },
+                                { question: 'A inflação inercial é aquela que...', options: ['É causada por choques externos.', 'Persiste por causa de mecanismos de indexação da economia.', 'Ocorre apenas em países em desenvolvimento.'], answer: 'Persiste por causa de mecanismos de indexação da economia.' },
+                                { question: 'A inflação de demanda ocorre quando a demanda por bens e serviços:', options: ['É maior que a oferta.', 'É menor que a oferta.', 'É igual à oferta.'], answer: 'É maior que a oferta.' },
+                                { question: 'O que caracteriza a "hiperinflação"?', options: ['Um aumento rápido e descontrolado dos preços.', 'Inflação de 50% ao ano.', 'Aumento da produção.'], answer: 'Um aumento rápido e descontrolado dos preços.' },
+                                { question: 'A "estagflação" é um cenário em que a economia enfrenta...', options: ['Inflação e crescimento econômico.', 'Inflação e recessão (estagnação).', 'Deflação e desemprego.'], answer: 'Inflação e recessão (estagnação).' },
+                                { question: 'Qual dos seguintes é um exemplo de inflação de demanda?', options: ['Aumento de auxílios financeiros.', 'Aumento do petróleo', 'Uma seca que destrói a safra de alimentos.'], answer: 'Aumento de auxílios financeiros.' },
+                                { question: 'Quando uma economia está "indexada", isso significa que:', options: ['Os preços estão presos a um outro valor fixo, não só a inflação.', 'Os salários e preços são ajustados automaticamente de acordo com a inflação passada.', 'Não há inflação.'], answer: 'Os preços estão presos a um outro valor fixo, não só a inflação.' },
+                                { question: 'A inflação "embutida" ou "inercial" é causada por...?', options: ['Ajustes de preços baseados nas expectativas de inflação passada e futura.', 'Gastos mal-planejados e desordenados do governo, extrapolando o orçamento.', 'Aumento de custos de produção.'], answer: 'Ajustes de preços baseados nas expectativas de inflação passada e futura.' },
+                                { question: 'Uma forte alta nos preços dos combustíveis causa um aumento generalizado nos preços de todos os produtos transportados. Esse fenômeno é um exemplo de:', options: ['Inflação de demanda.', 'Inflação inercial.', 'Inflação de custos.'], answer: 'Inflação de custos.' },
+                                { question: 'O governo de um país emite uma grande quantidade de dinheiro para financiar seus gastos. Essa política leva a que tipo de inflação?', options: ['Inflação de custos.', 'Inflação de demanda.', 'Inflação monetária.'], answer: 'Inflação monetária.' }
+                            ]
+                        },
+                        { id: 'impact', name: 'Impacto na sua vida', lessonContent: 'A inflação impacta diretamente a vida das pessoas porque reduz o poder de compra: o dinheiro passa a valer menos e é possível comprar menos com a mesma quantia. Isso afeta especialmente as famílias de baixa renda, que gastam mais com itens básicos como comida e transporte.',
+                            quizzes: [
+                                { question: 'Como a inflação afeta o poder de compra?', options: ['Ele aumenta', 'Ele diminui', 'Não há mudança'], answer: 'Ele diminui' },
+                                { question: 'Como a inflação afeta as dívidas?', options: ['Aumenta o valor real das dívidas.', 'Favorece o credor.', 'Reduz o valor real das dívidas.'], answer: 'Reduz o valor real das dívidas.' },
+                                { question: 'Qual tipo de investimento é geralmente mais protegido contra a inflação?', options: ['Investimentos com rentabilidade prefixada.', 'Investimentos com rentabilidade pós-fixada.', 'Caderneta de poupança.'], answer: 'Investimentos com rentabilidade pós-fixada.' },
+                                { question: 'Se seu salário aumenta 5% e a inflação é de 10%, o que acontece com seu poder de compra?', options: ['Aumenta 5%', 'Aumenta 10%', 'Diminui em valor real'], answer: 'Diminui em valor real' },
+                                { question: 'A inflação beneficia quem tem dívidas?', options: ['Sim, pois o valor real da dívida diminui.', 'Não, pois inflação nunca beneficia ninguém.', 'Sim, pois os juros são sempre maiores que a inflação.'], answer: 'Sim, pois o valor real da dívida diminui.' },
+                                { question: 'Se a inflação é de 10% ao mês e um produto que você quer comprar custa R$ 100,00 hoje, quanto ele provavelmente custará daqui a um ano?', options: ['R$ 220,00', 'R$ 90,00', 'R$ 110,00'], answer: 'R$ 220,00' },
+                                { question: 'Qual é o impacto da inflação no planejamento de longo prazo, como a aposentadoria?', options: ['Não tem impacto.', 'Torna mais fácil planejar.', 'Dificulta o planejamento.'], answer: 'Dificulta o planejamento.' },
+                                { question: 'Em um cenário de inflação, o que acontece com a poupança guardada em casa (debaixo do colchão)?', options: ['O valor real aumenta.', 'O valor real diminui.', 'O valor real não é afetado.'], answer: 'O valor real diminui.' },
+                                { question: 'Um investidor aplica R$ 1.000,00 em um título que paga juros fixos de 10% ao ano. Se a inflação inesperadamente sobe para 12% ao ano, qual é o retorno real desse investimento?', options: ['2% de ganho real.', '2% de perda real.', '12% de ganho real.', '0% de ganho real.'], answer: '2% de perda real.' },
+                                { question: 'Se o governo de um país decide aumentar os gastos públicos em um cenário de pleno emprego e economia já aquecida, qual o principal risco econômico?', options: ['Geração de deflação.', 'Criação de um ciclo de inflação.', 'Aumento do desemprego.'], answer: 'Criação de um ciclo de inflação.' }
+                            ]
+                        },
+                        { id: 'measurement', name: 'Como medir a inflação',lessonContent: 'No Brasil, a inflação é medida principalmente pelo Índice Nacional de Preços ao Consumidor Amplo (IPCA), calculado pelo IBGE. Ele acompanha a variação de preços de uma cesta de produtos e serviços consumidos por famílias com renda de 1 a 40 salários mínimos. Os preços são coletados mensalmente em várias regiões do país e comparados com os do mês anterior. Além do IPCA, existem outros índices, como o INPC e o IGP-M, usados em contratos e negociações econômicas.',
+                            quizzes: [
+                                { question: 'Qual o principal índice de inflação do Brasil?', options: ['Taxa Selic', 'IPGM', 'IPCA'], answer: 'IPCA' },
+                                { question: 'O IPCA (Índice de Preços ao Consumidor Amplo) mede:', options: ['Apenas preços no varejo.', 'A inflação para todas as famílias do país, independentemente do salário.', 'A inflação que afeta famílias com renda até 40 salários mínimos.'], answer: 'A inflação que afeta famílias com renda até 40 salários mínimos.' },
+                                { question: 'Qual o índice de inflação que o Banco Central utiliza como meta oficial?', options: ['IGP-M', 'INPC', 'IPCA'], answer: 'IPCA' },
+                                { question: 'Qual índice é considerado o "inflação do aluguel" por ser fortemente influenciado pelos preços no atacado?', options: ['IPCA.', 'IGP-M.', 'INPC.'], answer: 'IGP-M.' },
+                                { question: 'Para que serve a "cesta de produtos" de um índice de inflação?', options: ['Para representar o padrão de consumo da população e calcular a variação de preços.', 'Para medir os preços de todos os produtos do país.', 'Para ter um valor fixo de referência.'], answer: 'Para representar o padrão de consumo da população e calcular a variação de preços.' },
+                                { question: 'O que o INPC (Índice Nacional de Preços ao Consumidor) mede?', options: ['A inflação para famílias de baixa renda (até 5 salários mínimos).', 'A inflação geral do país.', 'A inflação do setor industrial.'], answer: 'A inflação para famílias de baixa renda (até 5 salários mínimos).' },
+                                { question: 'Se a inflação medida pelo IPCA de um mês foi de 0,5%, o que isso significa?', options: ['Os preços caíram 0,5%.', 'Os preços subiram 0,5% em média naquele mês.', 'O poder de compra aumentou.'], answer: 'Os preços subiram 0,5% em média naquele mês.' },
+                                { question: 'Por que o IGP-M e o IPCA podem apresentar valores diferentes de inflação?', options: ['Porque medem cestas de produtos diferentes e cobrem públicos distintos.', 'Porque um mede varejo e outro mede atacado.', 'Porque um é calculado pelo IBGE e outro pelo Banco Central.'], answer: 'Porque medem cestas de produtos diferentes e cobrem públicos distintos.' },
+                                { question: 'Se o IPCA acumulado de um ano foi de 8% e a meta de inflação do Banco Central era de 4%, qual a principal consequência esperada na política monetária?', options: ['Redução da taxa de juros para estimular a economia.', 'Aumento da taxa de juros para combater a inflação.', 'Manutenção da taxa de juros, pois a inflação está controlada.'], answer: 'Aumento da taxa de juros para combater a inflação.' },
+                                { question: 'Um consumidor gasta 20% de sua renda com aluguel. Se o aluguel é corrigido pelo IGP-M, que subiu 15%, enquanto o IPCA, que mede os outros gastos, subiu 5%, qual o impacto real no poder de compra dessa família?', options: ['O poder de compra aumentou.', 'O poder de compra caiu mais do que o IPCA geral indica.', 'O poder de compra permaneceu o mesmo.'], answer: 'O poder de compra caiu mais do que o IPCA geral indica.' }
+                            ]
+                        },
+                        { id: 'control', name: 'Medidas para combater a inflação',lessonContent: 'Para combater a inflação, o governo e o Banco Central usam diferentes medidas. A principal é a política monetária, como o aumento da taxa de juros (Selic), que reduz o consumo e o crédito. Outra medida é o controle dos gastos públicos, para evitar excesso de dinheiro circulando na economia. Também podem ser aplicadas políticas cambiais, influenciando o valor do real frente ao dólar, e medidas de incentivo à produção, para equilibrar oferta e demanda.',
+                            quizzes: [
+                                { question: 'Uma medida para combater a inflação é...', options: ['Reduzir a taxa de juros', 'Aumentar a taxa de juros', 'Imprimir mais dinheiro'], answer: 'Aumentar a taxa de juros' },
+                                { question: 'Quando a taxa de juros aumenta, o que tende a acontecer com o consumo?', options: ['Aumenta, pois o crédito fica mais barato.', 'Não é afetado.', 'Diminui, pois o crédito fica mais caro.'], answer: 'Diminui, pois o crédito fica mais caro.' },
+                                { question: 'O que o Banco Central faz para "secar" a liquidez da economia e conter a inflação?', options: ['Emite mais dinheiro.', 'Vende títulos públicos no mercado.', 'Aumenta os gastos do governo.'], answer: 'Vende títulos públicos no mercado.' },
+                                { question: 'O que é "política monetária contracionista"?', options: ['Política que diminui o dinheiro em circulação.', 'Política que aumenta o dinheiro em circulação.', 'Política que aumenta os gastos do governo.'], answer: 'Política que reduz o dinheiro em circulação.' },
+                                { question: 'Qual o principal objetivo do Banco Central ao aumentar a taxa Selic?', options: ['Aumentar o desemprego.', 'Estimular o consumo.', 'Controlar a inflação e segurar o aumento de preços.'], answer: 'Controlar a inflação e segurar o aumento de preços.' },
+                                { question: 'O que é a "meta de inflação"?', options: ['O valor máximo de juros.', 'O objetivo de inflação que o Banco Central busca atingir em um determinado período.', 'O valor de inflação que o governo precisa pagar.'], answer: 'O objetivo de inflação que o Banco Central busca atingir em um determinado período.' },
+                                { question: 'Se o governo decide cortar gastos públicos, essa é uma medida de qual tipo de política?', options: ['Política monetária.', 'Política fiscal.', 'Política de renda.'], answer: 'Política fiscal.' },
+                                { question: 'Qual o efeito de uma taxa de juros alta para o investidor em renda fixa?', options: ['Aumenta o retorno do investimento.', 'Reduz o retorno do investimento.', 'Não afeta o retorno.'], answer: 'Aumenta o retorno do investimento.' },
+                                { question: 'O Banco Central decide aumentar o "depósito compulsório" dos bancos. Qual o principal objetivo econômico dessa medida?', options: ['Incentivar os bancos a emprestar mais.', 'Tirar dinheiro de circulação da economia para combater a inflação.', 'Aumentar a quantidade de moeda disponível para crédito.'], answer: 'Tirar dinheiro de circulação da economia para combater a inflação.' },
+                                { question: 'Uma política fiscal expansionista (aumento de gastos públicos) pode causar inflação por qual motivo?', options: ['Porque reduz a demanda por bens e serviços.', 'Porque o governo gasta menos dinheiro.', 'Porque aumenta a demanda por bens e serviços.'], answer: 'Porque aumenta a demanda por bens e serviços.' }
+                            ]
+                        }
+                    ]
+                },
+            { id: 'macro', name: 'Renda fixa', icon: '💰', subphases: [
+               { id: 'basics', name: 'Introdução à Renda Fixa',lessonContent: 'Conteúdo sobre os tipos de investimento em renda fixa como CDB, um investimento de renda fixa em que você empresta dinheiro a um banco e recebe juros por isso, e Tesouro Direto, um programa do Tesouro Nacional que permite a pessoas físicas comprar títulos públicos federais pela internet.',
+                            quizzes: [
+                                { question: 'Qual a principal característica da renda fixa?', options: ['Garantia de lucro', 'Rentabilidade variável', 'Rentabilidade previsível'], answer: 'Rentabilidade previsível' },
+                                { question: 'Que tipo de risco é coberto pelo Fundo Garantidor de Créditos (FGC)?', options: ['Risco de mercado.', 'Risco de liquidez.', 'Risco de crédito da instituição financeira.'], answer: 'Risco de crédito da instituição financeira.' },
+                                { question: 'O que diferencia a rentabilidade de um título "pós-fixado" de um "prefixado"?', options: ['Apenas a taxa de juros.', 'O prefixado garante uma taxa de juros fixa, enquanto o pós-fixado varia.', 'O pós-fixado sempre rende mais.'], answer: 'O prefixado garante uma taxa de juros fixa, enquanto o pós-fixado varia.' },
+                                { question: 'Qual dos seguintes investimentos não é considerado de Renda Fixa?', options: ['CDB', 'Tesouro Direto', 'Ações de empresas'], answer: 'Ações de empresas' },
+                                { question: 'A rentabilidade de um título atrelado ao IPCA é um exemplo de:', options: ['Renda fixa prefixada.', 'Renda fixa pós-fixada.', 'Renda variável.'], answer: 'Renda fixa pós-fixada.' },
+                                { question: 'O que é o "resgate" de um investimento?', options: [ 'O ato de retirar o dinheiro investido.','O ato de aplicar dinheiro em um título.', 'O valor final do investimento.'], answer: 'O ato de retirar o dinheiro investido.' },
+                                { question: 'O que a sigla FGC significa?', options: ['Fundo de Garantia ao Cidadão.', 'Fundo de Governo e Crédito.', 'Fundo Garantidor de Créditos.'], answer: 'Fundo Garantidor de Créditos.' },
+                                { question: 'Qual o principal benefício da renda fixa para o investidor?', options: ['A certeza de lucros altos.', 'A segurança e a previsibilidade da rentabilidade.', 'A possibilidade de ficar rico rapidamente.'], answer: 'A segurança e a previsibilidade da rentabilidade.' },
+                                { question: 'Um investidor tem R$ 10.000,00 aplicados em um título prefixado que rende 10% ao ano. Se a inflação no período foi de 8%, qual foi o ganho real do investidor?', options: ['2% de ganho real.', '8% de ganho real.', '10% de ganho real.'], answer: '2% de ganho real.' },
+                                { question: 'Um investidor que tem um perfil mais conservador e busca proteção contra a inflação deve optar por qual tipo de título?', options: ['Ações de empresas.', 'Títulos de renda fixa prefixada.', 'Títulos de renda fixa pós-fixada atrelada à inflação.'], answer: 'Títulos de renda fixa pós-fixada atrelada à inflação.' }
+                            ]
+                        },
+                        { id: 'cdb', name: 'Certificado de Depósito Bancário (CDB)',lessonContent: 'Aprenda o que é um CDB e como ele funciona como um empréstimo para bancos.',
+                            quizzes: [
+                                { question: 'O que é um CDB?', options: ['Ação de uma empresa', 'Título de dívida de banco', 'Moeda digital'], answer: 'Título de dívida de banco' },
+                                { question: 'Qual a segurança do CDB para o investidor?', options: ['É garantido pelo Tesouro Nacional.', 'É um investimento de alto risco.', 'É garantido pelo Fundo Garantidor de Créditos (FGC) até um limite.'], answer: 'É garantido pelo Fundo Garantidor de Créditos (FGC) até um limite.' },
+                                { question: 'O que significa a sigla CDB?', options: ['Crédito Direto Bancário', 'Certificado de Depósito Bancário', 'Comprovante de Dívida de Banco'], answer: 'Certificado de Depósito Bancário' },
+                                { question: 'O que significa "CDB com liquidez diária"?', options: ['Você só pode resgatar no vencimento.', 'Você pode resgatar o dinheiro a qualquer momento.', 'O valor do investimento muda diariamente.'], answer: 'Você pode resgatar o dinheiro a qualquer momento.' },
+                                { question: 'Qual a relação entre o CDB e o banco?', options: ['O investidor empresta dinheiro para o banco.', 'O banco empresta dinheiro para o investidor.', 'É uma compra de ações do banco.'], answer: 'O investidor empresta dinheiro para o banco.' },
+                                { question: 'A rentabilidade de um CDB pode ser ligada a qual índice?', options: ['Apenas a uma taxa fixa.', 'A uma porcentagem do CDI.', 'Apenas ao IPCA.'], answer: 'A uma porcentagem do CDI.' },
+                                { question: 'O que significa um CDB que rende 120% do CDI?', options: ['Ele rende 20% a mais que a taxa CDI.', 'Ele rende 120% da taxa CDI.', 'Ele rende o mesmo que a poupança.'], answer: 'Ele rende 120% da taxa CDI.' },
+                                { question: 'Por que o CDB de um banco menor pode oferecer uma taxa de juros maior que a de um banco grande?', options: ['Porque é mais seguro.', 'Porque ele precisa atrair mais investidores e compensar o risco percebido.', 'Porque ele tem mais dinheiro para investir.'], answer: 'Porque ele precisa atrair mais investidores e compensar o risco percebido.' },
+                                { question: 'Um investidor tem R$ 50.000,00 aplicados em um CDB. A instituição financeira em que ele investiu declara falência. Qual o valor máximo que o investidor pode recuperar pelo FGC (Fundo Garantidor de Créditos)?', options: ['R$ 50.000,00', 'R$ 100.000,00', 'R$ 250.000,00', 'R$ 500.000,00'], answer: 'R$ 250.000,00' },
+                                { question: 'Um CDB prefixado que rende 15% ao ano é mais vantajoso que um CDB pós-fixado que rende 100% do CDI (a 12% ao ano) em um cenário de:', options: ['Queda da taxa de juros.', 'Aumento da taxa de juros.', 'Inflação alta e imprevisível.'], answer: 'Queda da taxa de juros.' }
+                            ]
+                        },
+                        { id: 'treasury', name: 'Tesouro Direto',lessonContent: 'O Tesouro Selic é um investimento pós-fixado que acompanha a taxa básica de juros (a Selic), sendo indicado para reserva de emergência e objetivos de curto prazo por sua alta liquidez e baixa volatilidade. Já o Tesouro IPCA+ (ou Tesouro IPCA), é um título híbrido que garante a rentabilidade da inflação (IPCA) mais uma taxa pré-fixada, sendo ideal para objetivos de longo prazo e proteção do poder de compra, embora o preço possa variar em resgates antecipados devido à marcação a mercado.',
+                            quizzes: [
+                                { question: 'O Tesouro Direto é um investimento em...', options: ['Ações de empresas', 'Criptomoedas', 'Títulos públicos do governo'], answer: 'Títulos públicos do governo' },
+                                { question: 'O Tesouro Selic é ideal para...', options: ['Garantir alta rentabilidade fixa.', 'Proteger-se contra a inflação.', 'Reserva de emergência, por sua alta liquidez e segurança.'], answer: 'Reserva de emergência, por sua alta liquidez e segurança.' },
+                                { question: 'Qual título do Tesouro Direto protege o investidor contra a inflação?', options: ['Tesouro Selic', 'Tesouro Prefixado', 'Tesouro IPCA+'], answer: 'Tesouro IPCA+' },
+                                { question: 'O que o Tesouro Prefixado oferece?', options: ['Uma rentabilidade que varia com a inflação.', 'Uma taxa de juros que já é conhecida no momento da compra.', 'Uma rentabilidade ligada à taxa Selic.'], answer: 'Uma taxa de juros que já é conhecida no momento da compra.' },
+                                { question: 'Qual o principal risco do Tesouro Prefixado se você precisar vender antes do vencimento?', options: ['Risco de o governo falir.', 'Risco de a taxa de juros subir e o valor do seu título cair.', 'Risco de o título não render.'], answer: 'Risco de a taxa de juros subir e o valor do seu título cair.' },
+                                { question: 'O que é a "marcação a mercado" no Tesouro Direto?', options: ['O valor de venda do título no momento da negociação.', 'A rentabilidade do título no vencimento.', 'O valor que você pagou inicialmente.'], answer: 'O valor de venda do título no momento da negociação.' },
+                                { question: 'Qual a garantia de um investimento no Tesouro Direto?', options: ['O patrimônio do banco.', 'A garantia total do Tesouro Nacional.', 'O FGC.'], answer: 'A garantia total do Tesouro Nacional.' },
+                                { question: 'O que a taxa Selic representa?', options: ['A taxa de juros que o Banco Central cobra dos bancos.', 'A taxa básica de juros da economia brasileira.', 'A taxa de inflação.'], answer: 'A taxa básica de juros da economia brasileira.' },
+                                { question: 'Um investidor compra um Tesouro IPCA+ com vencimento em 2035. Se a inflação foi de 6% e a rentabilidade prefixada do título era de 5%, qual o retorno nominal (sem descontar a inflação) do investimento?', options: ['5%', '11%', '10%', '6%'], answer: '11%' },
+                                { question: 'O Tesouro Direto é considerado o investimento mais seguro do Brasil. Por que esse risco de crédito é considerado o mais baixo?', options: ['Porque o Tesouro Nacional pode emitir moeda para pagar sua dívida', 'Porque o governo não pode falir.', 'Porque ele é garantido pelo FGC.'], answer: 'Porque o Tesouro Nacional pode emitir moeda para pagar sua dívida' }
+                            ]
+                        },
+                        { id: 'lci-lca', name: 'LCI e LCA',lessonContent: 'A principal diferença entre a LCI e a LCA é o setor econômico que cada investimento visa financiar: a LCI (Letra de Crédito Imobiliário) é destinada a financiar o setor imobiliário, enquanto a LCA (Letra de Crédito do Agronegócio) tem o objetivo de viabilizar projetos no setor do agronegócio.',
+                            quizzes: [
+                                { question: 'Qual a principal vantagem da LCI e LCA?', options: ['Alta liquidez', 'Isenção de Imposto de Renda', 'Garantia total de lucro'], answer: 'Isenção de Imposto de Renda' },
+                                { question: 'O que significa a sigla LCA?', options: ['Letra de Câmbio Agrícola', 'Letra de Crédito do Agronegócio', 'Letra de Confiança Agrícola'], answer: 'Letra de Crédito do Agronegócio' },
+                                { question: 'Os recursos levantados por LCI e LCA são usados para financiar, respectivamente:', options: ['O setor imobiliário e o agronegócio', 'O governo e bancos', 'Empresas e pessoas físicas'], answer: 'O setor imobiliário e o agronegócio' },
+                                { question: 'Qual das seguintes afirmações sobre LCI e LCA é falsa?', options: ['São garantidas pelo FGC.', 'São emitidas por bancos.', 'Não existe LCI e LCA com liquidez diária.'], answer: 'Não existe LCI e LCA com liquidez diária.' },
+                                { question: 'Qual o principal benefício da isenção de IR para o investidor?', options: ['O investimento se torna mais arriscado.', 'O retorno líquido do investimento pode ser maior que o de um CDB de mesma taxa.', 'O banco paga mais juros.'], answer: 'O retorno líquido do investimento pode ser maior que o de um CDB de mesma taxa.' },
+                                { question: 'Qual o papel da LCI na economia?', options: ['Financiar o governo.', 'Financiar a compra e construção de imóveis.', 'Financiar empresas de tecnologia.'], answer: 'Financiar a compra e construção de imóveis.' },
+                                { question: 'Qual dos seguintes investimentos tem a mesma garantia do FGC que o CDB?', options: ['LCI.', 'Ações.', 'Títulos do Tesouro Direto.'], answer: 'LCI.' },
+                                { question: 'O que acontece com os juros do LCI e LCA se o investidor resgatar antes do vencimento?', options: ['Ele perde o valor total do investimento.', 'Ele recebe apenas uma parte do valor investido.', 'Geralmente não é possível resgatar antes do vencimento ou há penalidades.'], answer: 'Geralmente não é possível resgatar antes do vencimento ou há penalidades.' },
+                                { question: 'Um investidor está decidindo entre um CDB que rende 120% do CDI e uma LCI que rende 95% do CDI. Considerando que o CDI está em 10% ao ano, qual investimento oferece o maior retorno líquido (após impostos)?', options: ['O CDB, pois rende mais.', 'A LCI, pois é isenta de imposto de renda, tornando o retorno líquido maior.', 'Ambos são equivalentes.'], answer: 'A LCI, pois é isenta de imposto de renda, tornando o retorno líquido maior.' },
+                                { question: 'Qual a principal razão econômica pela qual o governo brasileiro isenta de Imposto de Renda as LCIs e LCAs?', options: ['Para beneficiar os bancos.', 'Para incentivar o financiamento dos setores imobiliário e do agronegócio, considerados estratégicos para a economia.', 'Para que os investidores tenham mais lucro.'], answer: 'Para incentivar o financiamento dos setores imobiliário e do agronegócio, considerados estratégicos para a economia.' }
+                            ]
+                        },
+                        { id: 'risks', name: 'Riscos da Renda Fixa',lessonContent: 'Entenda os principais riscos, como o de crédito e o de mercado, e como minimizá-los.',
+                            quizzes: [
+                                { question: 'O risco de crédito se refere a...', options: ['Variação da taxa de juros', 'Não receber o dinheiro de volta', 'Queda do valor do título'], answer: 'Não receber o dinheiro de volta' },
+                                { question: 'O risco de mercado está associado a...', options: ['Alterações nas condições macroeconômicas', 'O investidor não conseguir vender o título', 'A empresa quebrou'], answer: 'Alterações nas condições macroeconômicas' },
+                                { question: 'O que é o risco de liquidez?', options: ['A chance de o emissor dar calote.', 'A dificuldade de vender o ativo rapidamente sem perda significativa de valor.', 'A possibilidade de o investimento não render o esperado.'], answer: 'A dificuldade de vender o ativo rapidamente sem perda significativa de valor.' },
+                                { question: 'Qual dos seguintes investimentos tem risco de crédito mais baixo?', options: ['CDB de banco pequeno.', 'Títulos do Tesouro Direto.', 'Ações de uma startup.'], answer: 'Títulos do Tesouro Direto.' },
+                                { question: 'Se você investe em um título de renda fixa que só pode ser resgatado no vencimento, qual o principal risco que você corre?', options: ['Risco de liquidez.', 'Risco de crédito.', 'Risco de mercado.'], answer: 'Risco de liquidez.' },
+                                { question: 'O que significa um "rating" baixo para um título de renda fixa?', options: ['O título é muito seguro.', 'O título tem alto risco de crédito.', 'O título não paga juros.'], answer: 'O título tem alto risco de crédito.' },
+                                { question: 'Como a diversificação ajuda a mitigar o risco de crédito?', options: ['Concentrando o dinheiro em um só investimento.', 'Espalhando o dinheiro entre diferentes emissores, reduzindo o impacto da falência de um deles.', 'Investindo apenas em Tesouro Direto.'], answer: 'Espalhando o dinheiro entre diferentes emissores, reduzindo o impacto da falência de um deles.' },
+                                { question: 'Qual a relação entre o risco e o retorno em um investimento?', options: ['Não existe relação.', 'Quanto maior o risco, maior o potencial de retorno.', 'Quanto menor o risco, maior o retorno.'], answer: 'Quanto maior o risco, maior o potencial de retorno.' },
+                                { question: 'Um investidor compra um título de renda fixa que paga 10% de juros prefixados. Se a taxa básica de juros da economia (Selic) sobe para 15%, o que acontece com o valor de mercado do título?', options: ['O valor do título sobe, pois a rentabilidade é fixa.', 'O valor do título não se altera.', 'O valor do título cai, pois o mercado agora prefere novos títulos com taxas mais altas.'], answer: 'O valor do título cai, pois o mercado agora prefere novos títulos com taxas mais altas.' },
+                                { question: 'Qual dos seguintes cenários é um exemplo de risco de reinvestimento?', options: ['A taxa de juros sobe e você precisa comprar um novo título.', 'A taxa de juros cai e você precisa reinvestir o dinheiro do título que venceu, mas a nova taxa é menor.', 'A empresa quebrou e você perdeu seu dinheiro.'], answer: 'A taxa de juros cai e você precisa reinvestir o dinheiro do título que venceu, mas a nova taxa é menor.' }
+                            ]
+                        },
+                        { id: 'diversification', name: 'Como diversificar a Renda Fixa',lessonContent: 'Estratégias para construir uma carteira de renda fixa equilibrada.',
+                            quizzes: [
+                                { question: 'Por que diversificar a carteira?', options: [ 'Para diluir o risco', 'Para aumentar o risco','Para reduzir os lucros'], answer: 'Para diluir o risco' },
+                                { question: 'Como a diversificação ajuda a mitigar o risco?', options: ['Aumenta a exposição a um único ativo', 'Distribui o capital em vários investimentos', 'Garante um retorno fixo'], answer: 'Distribui o capital em vários investimentos' },
+                                { question: 'Qual a principal função da diversificação?', options: ['Minimizar perdas quando um ou mais investimentos têm mau desempenho', 'Garantir que um investimento perca dinheiro', 'Aumentar o retorno de um único investimento'], answer: 'Minimizar perdas quando um ou mais investimentos têm mau desempenho' },
+                                { question: 'O que significa "diversificar em diferentes emissores"?', options: ['Comprar vários títulos do mesmo banco.', 'Comprar títulos de diferentes bancos e instituições.', 'Investir apenas em Tesouro Direto.'], answer: 'Comprar títulos de diferentes bancos e instituições.' },
+                                { question: 'Qual dos seguintes não é um tipo de diversificação?', options: ['Diversificação de emissores.', 'Diversificação de prazos.', 'Diversificação de cor da roupa.'], answer: 'Diversificação de cor da roupa.' },
+                                { question: 'Qual é o benefício de diversificar os prazos de vencimento dos seus títulos de renda fixa?', options: ['Reduz o risco de crédito.', 'Permite ter dinheiro disponível em diferentes momentos e aproveitar as variações de juros.', 'Permite ter apenas um título.'], answer: 'Permite ter dinheiro disponível em diferentes momentos e aproveitar as variações de juros.' },
+                                { question: 'O que é a "correlação" entre ativos?', options: ['A relação de causa e efeito entre a rentabilidade de um e outro.', 'A tendência de dois ativos se moverem na mesma direção ou em direções opostas.', 'O tempo que leva para um ativo render.'], answer: 'A tendência de dois ativos se moverem na mesma direção ou em direções opostas.' },
+                                { question: 'Para uma carteira de renda fixa, é ideal ter ativos com correlação...', options: ['Positiva e alta.', 'Positiva e baixa.', 'Negativa (se movem em direções opostas).'], answer: 'Negativa (se movem em direções opostas).' },
+                                { question: 'Um investidor aloca seu dinheiro entre um CDB de liquidez diária e um Tesouro IPCA+ de longo prazo. Essa estratégia de diversificação está focada em mitigar qual tipo de risco?', options: ['Apenas risco de crédito.', 'Risco de crédito e de liquidez.', 'Risco de crédito e de mercado.'], answer: 'Risco de crédito e de liquidez.' },
+                                { question: 'Um investidor compra títulos de diferentes bancos. Qual o principal objetivo dessa diversificação?', options: ['Garantir que os títulos rendam mais.', 'Aproveitar a garantia de crédito do FGC em várias instituições.', 'Reduzir o risco de falência de um único banco.'], answer: 'Reduzir o risco de falência de um único banco.' }
+                            ]
+                        }
+                    ]
+                },
+            { id: 'finance', name: 'Criptomoedas', icon: '₿', subphases: [
+                 { id: 'what-are', name: 'O que são criptomoedas?',lessonContent: 'A criptomoeda é uma forma digital ou virtual de moeda que opera independentemente dos sistemas bancários tradicionais por meio do uso de criptografia para proteger as transações e controlar a criação de novas unidades.',
+                            quizzes: [
+                                { question: 'Qual a tecnologia por trás do Bitcoin?', options: ['Blockchain', 'Cloud Computing', 'Inteligência Artificial'], answer: 'Blockchain' },
+                                { question: 'Uma das principais características das criptomoedas é serem "descentralizadas". O que isso significa?', options: ['São controladas por um banco central.', 'Não são reguladas por nenhuma autoridade central.', 'Podem ser usadas para comprar qualquer coisa.'], answer: 'Não são reguladas por nenhuma autoridade central.' },
+                                { question: 'O que é uma "criptomoeda"?', options: ['Um tipo de ação de empresa.', 'Uma moeda digital que usa criptografia para segurança.', 'Uma moeda de jogo online.'], answer: 'Uma moeda digital que usa criptografia para segurança.' },
+                                { question: 'O que é "blockchain"?', options: ['Um tipo de banco.', 'Um livro-razão digital e descentralizado que registra transações.', 'Uma forma de fazer pagamentos.'], answer: 'Um livro-razão digital e descentralizado que registra transações.' },
+                                { question: 'O que garante a segurança das transações em uma blockchain?', options: ['A criptografia e a descentralização.', 'O governo.', 'O banco central.'], answer: 'A criptografia e a descentralização.' },
+                                { question: 'Qual a principal diferença entre uma criptomoeda e uma moeda fiduciária (como o Real)?', options: ['A cripto é descentralizada e digital; a moeda fiduciária é centralizada e controlada por um governo.', 'A cripto não pode ser usada para comprar produtos.', 'Apenas o nome.'], answer: 'A cripto é descentralizada e digital; a moeda fiduciária é centralizada e controlada por um governo.' },
+                                { question: 'O que é "mineração" de Bitcoin?', options: ['O processo de compra de bitcoins.', 'O processo de verificação de transações e criação de novos blocos, que gera bitcoins como recompensa.', 'O processo de venda de bitcoins.'], answer: 'O processo de verificação de transações e criação de novos blocos, que gera bitcoins como recompensa.' },
+                                { question: 'Qual o papel da "criptografia" no funcionamento das criptomoedas?', options: ['Esconder o valor das transações.', 'Garantir a segurança, autenticidade e privacidade das transações.', 'Tornar as transações mais lentas.'], answer: 'Garantir a segurança, autenticidade e privacidade das transações.' },
+                                { question: 'O "problema do gasto duplo" é uma falha que a tecnologia blockchain foi projetada para resolver. O que ele significa?', options: ['A capacidade de um usuário gastar a mesma unidade de moeda digital mais de uma vez.', 'Um erro no cálculo de juros.', 'O risco de a moeda não ser aceita em transações.'], answer: 'A capacidade de um usuário gastar a mesma unidade de moeda digital mais de uma vez.' },
+                                { question: 'Uma das principais críticas à criptomoedas como o Bitcoin é o alto consumo de energia na mineração. Qual o principal incentivo para que os mineradores continuem a validar transações?', options: ['Eles são pagos pelo governo.', 'A recompensa em criptomoedas por cada bloco minerado.', 'Eles fazem por diversão.'], answer: 'A recompensa em criptomoedas por cada bloco minerado.' }
+                            ]
+                        },
+                        { id: 'how-it-works', name: 'Como funcionam?',lessonContent: 'A criptomoeda utiliza tecnologia criptográfica para proteger transações e controlar a criação de novas unidades.',
+                            quizzes: [
+                                { question: 'As criptomoedas são controladas por...?', options: ['Bancos centrais', 'Governos', 'Uma rede descentralizada de computadores'], answer: 'Uma rede descentralizada de computadores' },
+                                { question: 'O que é um "nó" em uma rede blockchain?', options: ['O criador de uma criptomoeda.', 'Uma transação inválida.', 'Um computador que valida e armazena transações.'], answer: 'Um computador que valida e armazena transações.' },
+                                { question: 'O que é "mineração" de criptomoedas?', options: ['O processo de compra de criptomoedas.', 'O processo de verificação e adição de novas transações à blockchain.', 'A criação de novas moedas físicas.'], answer: 'O processo de verificação e adição de novas transações à blockchain.' },
+                                { question: 'Qual a principal função de um "bloco" em uma blockchain?', options: ['Armazenar uma única transação.', 'Agrupar e registrar um conjunto de transações verificadas.', 'Criar novas criptomoedas.'], answer: 'Agrupar e registrar um conjunto de transações verificadas.' },
+                                { question: 'O que é "consenso" em uma blockchain?', options: ['Um acordo entre os governos.', 'O mecanismo pelo qual os nós da rede concordam sobre a validade das transações.', 'Uma votação pública sobre o futuro da criptomoeda.'], answer: 'O mecanismo pelo qual os nós da rede concordam sobre a validade das transações.' },
+                                { question: 'O que a "Prova de Trabalho" (Proof-of-Work) exige dos mineradores?', options: ['Apenas um computador ligado.', 'A resolução de problemas matemáticos complexos para validar transações.', 'Uma quantidade de dinheiro para validar transações.'], answer: 'A resolução de problemas matemáticos complexos para validar transações.' },
+                                { question: 'O que é um "smart contract" (contrato inteligente)?', options: ['Um código de computador que executa automaticamente as cláusulas de um acordo.', 'Um contrato tradicional em papel.', 'Um contrato que é gerenciado por um advogado.'], answer: 'Um código de computador que executa automaticamente as cláusulas de um acordo.' },
+                                { question: 'Qual a principal vantagem de uma transação em blockchain em comparação com uma transação bancária tradicional?', options: ['É mais rápida e barata.', 'É sempre mais segura.', 'É transparente, imutável e descentralizada.'], answer: 'É transparente, imutável e descentralizada.' },
+                                { question: 'Uma nova criptomoeda que usa "Prova de Participação" (Proof-of-Stake) para validar transações seria considerada mais sustentável que o Bitcoin. Por que?', options: ['O consumo de energia é significativamente menor, pois não há necessidade de resolver problemas complexos.', 'Apenas uma pessoa pode validar as transações, evitando assim o roubo de identidade.', 'As transações são mais lentas.'], answer: 'O consumo de energia é significativamente menor, pois não há necessidade de resolver problemas complexos.' },
+                                { question: 'Se o número de transações em uma rede blockchain aumenta, mas a capacidade da rede de processar transações permanece a mesma, o que tende a acontecer com as taxas de transação?', options: ['Elas caem, pois há mais concorrência.', 'Elas se mantêm estáveis.', 'Elas aumentam, pois os usuários competem por espaço nos blocos.'], answer: 'Elas aumentam, pois os usuários competem por espaço nos blocos.' }
+                            ]
+                        },
+                        { id: 'buying', name: 'Como comprar criptomoedas',lessonContent: ' É possível comprar cotas de fundos de criptomoedas, negociá-las diretamente em uma corretora especializada (exchanges) ou minerando',
+                            quizzes: [
+                                { question: 'Onde as criptomoedas são negociadas?', options: ['Em exchanges', 'Em bancos convencionais', 'No mercado de ações'], answer: 'Em exchanges' },
+                                { question: 'O que é uma exchange de criptomoedas?', options: ['Um tipo de banco.', 'Uma plataforma online para negociar criptoativos.', 'Uma carteira para guardar criptomoedas.'], answer: 'Uma plataforma online para negociar criptoativos.' },
+                                { question: 'Qual o principal risco de deixar criptomoedas em uma exchange?', options: ['O risco da exchange ser hackeada.', 'O risco de a criptomoeda se valorizar.', 'O risco de a transação ser muito rápida.'], answer: 'O risco da exchange ser hackeada.' },
+                                { question: 'Qual a diferença entre uma "corretora centralizada" (CEX) e uma "corretora descentralizada" (DEX)?', options: ['A CEX não cobra taxas.', 'A CEX é gerenciada por uma empresa, enquanto a DEX opera via contratos inteligentes sem intermediários.', 'A DEX é mais lenta.'], answer: 'A CEX é gerenciada por uma empresa, enquanto a DEX opera via contratos inteligentes sem intermediários.' },
+                                { question: 'O que é uma "carteira de custódia" (custodial wallet)?', options: ['Uma carteira onde você detém as chaves privadas.', 'Uma carteira onde a exchange detém as chaves privadas.', 'Uma carteira de papel.'], answer: 'Uma carteira onde a exchange detém as chaves privadas.' },
+                                { question: 'O que significa a sigla KYC em exchanges?', options: ['Know Your Customer (Conheça seu Cliente).', 'Keep Your Crypto.', 'Key Your Cash.'], answer: 'Know Your Customer (Conheça seu Cliente).' },
+                                { question: 'Qual a principal forma de comprar criptomoedas com moeda fiduciária (como o Real)?', options: ['Diretamente de outra pessoa.', 'Através de uma exchange centralizada.', 'Em um banco tradicional.'], answer: 'Através de uma exchange centralizada.' },
+                                { question: 'O que é "staking"?', options: ['O processo de comprar e vender criptoativos rapidamente.', 'O ato de manter moedas em uma carteira para ajudar na segurança da rede e ser recompensado por isso.', 'O ato de comprar uma NFT.'], answer: 'O ato de manter moedas em uma carteira para ajudar na segurança da rede e ser recompensado por isso.' },
+                                { question: 'Qual dos seguintes fatores pode levar um usuário a preferir uma DEX em vez de uma CEX?', options: ['A necessidade de verificações KYC.', 'O desejo de maior anonimato e controle total sobre suas chaves privadas.', ' As taxas de transação mais baixas em comparação ao mercado geral., O desejo de maior anonimato e controle total sobre suas chaves privadas.'], answer: 'O desejo de maior anonimato e controle total sobre suas chaves privadas.' },
+                                { question: 'Por que a "tokenomics" (economia de tokens) é importante ao analisar uma criptomoeda?', options: ['Define o preço do token.', 'Ajuda a entender a oferta, demanda e utilidade do token, o que afeta seu valor e potencial de crescimento.', 'Não tem relevância.'], answer: 'Ajuda a entender a oferta, demanda e utililidade do token, o que afeta seu valor e potencial de crescimento.' }
+                            ]
+                        },
+                        { id: 'wallets', name: 'Carteiras (Wallets)', lessonContent: 'Uma carteira de criptomoedas (ou wallet) é um software ou hardware que armazena chaves privadas e chaves públicas, permitindo que você gerencie, envie e receba criptoativos na blockchain. ',
+                            quizzes: [
+                                { question: 'O que é uma "cold wallet"?', options: ['Carteira digital online', 'Carteira de papel', 'Carteira física desconectada da internet'], answer: 'Carteira física desconectada da internet' },
+                                { question: 'A principal diferença entre uma "hot wallet" e uma "cold wallet" é:', options: ['A conexão com a internet.', 'A velocidade das transações.', 'O custo da carteira.'], answer: 'A conexão com a internet.' },
+                                { question: 'Por que é crucial guardar sua "chave privada"?', options: ['Para fazer transações na exchange.', 'Ela é a prova de propriedade de suas criptomoedas.', 'Para ter acesso à carteira de outra pessoa.'], answer: 'Ela é a prova de propriedade de suas criptomoedas.' },
+                                { question: 'O que é a "frase semente" (seed phrase)?', options: ['Uma senha para sua conta em uma exchange.', 'Uma sequência de palavras que serve como backup para sua carteira.', 'Um código para comprar criptomoedas.'], answer: 'Uma sequência de palavras que serve como backup para sua carteira.' },
+                                { question: 'Qual o principal risco de usar uma hot wallet?', options: ['Perder a carteira física.', 'Ser hackeado ou ter os fundos roubados por estar sempre online.', 'Perder a frase semente.'], answer: 'Ser hackeado ou ter os fundos roubados por estar sempre online.' },
+                                { question: 'Qual é a principal vantagem de uma cold wallet?', options: ['A conveniência para transações diárias.', 'A segurança, pois ela não está conectada à internet.', 'A velocidade das transações.'], answer: 'A segurança, pois ela não está conectada à internet.' },
+                                { question: 'O que é uma "carteira de papel" (paper wallet)?', options: ['Um tipo de cold wallet onde as chaves são impressas em um pedaço de papel.', 'Uma carteira para guardar dinheiro físico.', 'Uma conta bancária.'], answer: 'Um tipo de cold wallet onde as chaves são impressas em um pedaço de papel.' },
+                                { question: 'Qual a principal diferença entre a chave pública e a chave privada?', options: ['A chave pública é para receber dinheiro, a privada é para enviar.', 'Ambas são para receber dinheiro.', 'Ambas são para enviar dinheiro.'], answer: 'A chave pública é para receber dinheiro, a privada é para enviar.' },
+                                { question: 'Um investidor de criptomoedas, em um cenário de alta volatilidade, decide mover a maior parte de seus ativos para uma cold wallet. Qual o principal trade-off econômico dessa decisão?', options: ['Ele perde a oportunidade de fazer transações rápidas para especular com as flutuações de preço.', 'Ele tem que pagar mais taxas para o banco.', 'Ele aumenta o risco de perder a carteira física.'], answer: 'Ele perde a oportunidade de fazer transações rápidas para especular com as flutuações de preço.' },
+                                { question: 'Por que a frase semente é considerada a "chave mestra" de uma carteira de criptomoedas?', options: ['Porque ela é a senha para a conta bancária.', 'Porque ela permite restaurar o acesso a todos os fundos da carteira, mesmo que o dispositivo seja perdido.', 'Porque ela permite comprar criptomoedas.'], answer: 'Porque ela permite restaurar o acesso a todos os fundos da carteira, mesmo que o dispositivo seja perdido.' }
+                            ]
+                        },
+                        { id: 'risks-and-benefits', name: 'Riscos e benefícios',lessonContent: 'Conheça os riscos (volatilidade, segurança) e os benefícios (potencial de alto retorno, descentralização) de investir em criptos.',
+                            quizzes: [
+                                { question: 'Qual o maior risco de se investir em criptomoedas?', options: ['Baixa volatilidade', 'Risco de liquidez', 'Alta volatilidade'], answer: 'Alta volatilidade' },
+                                { question: 'Qual dos benefícios abaixo está associado às criptomoedas?', options: ['Taxa de juros fixa', 'Totalmente regulamentado', 'Potencial de alto retorno e descentralização'], answer: 'Potencial de alto retorno e descentralização' },
+                                { question: 'O risco de liquidez se refere a:', options: ['O preço da criptomoeda cair.', 'A dificuldade de converter a criptomoeda em dinheiro rapidamente.', 'A possibilidade de a rede ser hackeada.'], answer: 'A dificuldade de converter a criptomoeda em dinheiro rapidamente.' },
+                                { question: 'O que é "volatilidade"?', options: ['A estabilidade do preço de um ativo.', 'A rapidez e intensidade das mudanças no preço de um ativo.', 'A segurança de uma rede.'], answer: 'A rapidez e intensidade das mudanças no preço de um ativo.' },
+                                { question: 'O que é um "rug pull"?', options: ['Um tipo de ataque cibernético.', 'Uma forma de roubo em que desenvolvedores de um projeto retiram o dinheiro dos investidores e desaparecem.', 'Um tipo de airdrop.'], answer: 'Uma forma de roubo em que desenvolvedores de um projeto retiram o dinheiro dos investidores e desaparecem.' },
+                                { question: 'O que o "mercado de urso" (bear market) indica?', options: ['Um período de alta nos preços.', 'Um período de baixa nos preços.', 'Um período de estabilidade.'], answer: 'Um período de baixa nos preços.' },
+                                { question: 'Qual é um dos principais benefícios da descentralização?', options: ['O controle do governo sobre o sistema.', 'A eliminação de intermediários, como bancos e instituições financeiras.', 'A garantia de um retorno fixo.'], answer: 'A eliminação de intermediários, como bancos e instituições financeiras.' },
+                                { question: 'O que o "risco de regulamentação" se refere?', options: ['O risco de a criptomoeda ser banida ou ter seu uso restringido por novas leis.', 'O risco de a criptomoeda não ser popular.', 'O risco de roubo.'], answer: 'O risco de a criptomoeda ser banida ou ter seu uso restringido por novas leis.' },
+                                { question: 'Um investidor compra um ativo em um mercado altamente volátil, como o de criptomoedas. Qual a principal razão econômica pela qual ele deve estar preparado para grandes perdas?', options: ['O ativo é uma fraude.', 'O preço de um ativo volátil pode cair drasticamente em pouco tempo, e ele pode não conseguir vendê-lo a um preço justo.', 'A inflação vai corroer o valor.'], answer: 'O preço de um ativo volátil pode cair drasticamente em pouco tempo, e ele pode não conseguir vendê-lo a um preço justo.' },
+                                { question: 'O "efeito de rede" é um benefício de algumas criptomoedas. O que ele significa?', options: ['Quanto mais pessoas usam a rede, mais valiosa e útil ela se torna para todos os usuários.', 'Quanto mais pessoas usam, mais lenta a rede fica.', 'Quanto mais pessoas usam, mais fácil é ser hackeado.'], answer: 'Quanto mais pessoas usam a rede, mais valiosa e útil ela se torna para todos os usuários.' }
+                            ]
+                        },
+                        { id: 'regulations', name: 'Regulamentação e o futuro',lessonContent: 'Como os governos estão lidando com as criptomoedas e o que esperar para o futuro.',
+                            quizzes: [
+                                { question: 'A maioria dos países tem qual postura em relação às criptos?', options: ['Totalmente proibidas', 'Totalmente regulamentadas', 'Em processo de regulamentação'], answer: 'Em processo de regulamentação' },
+                                { question: 'Qual o principal desafio para os governos ao regulamentar criptomoedas?', options: ['A falta de popularidade.', 'A natureza descentralizada e transfronteiriça das moedas.', 'O baixo volume de transações.'], answer: 'A natureza descentralizada e transfronteiriça das moedas.' },
+                                { question: 'Qual o objetivo de um governo ao regulamentar o mercado de criptomoedas?', options: ['Impedir totalmente o uso de moedas digitais.', 'Proteger investidores, evitar crimes e arrecadar impostos.', 'Promover a total liberdade do mercado.'], answer: 'Proteger investidores, evitar crimes e arrecadar impostos.' },
+                                { question: 'O que é uma "stablecoin"?', options: ['Uma criptomoeda que é volátil.', 'Uma criptomoeda cujo valor é atrelado a um ativo estável, como o dólar.', 'Um tipo de moeda fiduciária.'], answer: 'Uma criptomoeda cujo valor é atrelado a um ativo estável, como o dólar.' },
+                                { question: 'Qual o papel da "lavagem de dinheiro" em relação à regulamentação de criptoativos?', options: ['Não tem relação.', 'É um dos principais motivos para os governos buscarem regulamentar as transações, para rastrear atividades ilícitas.', 'É um crime que só ocorre com dinheiro fiduciário.'], answer: 'É um dos principais motivos para os governos buscarem regulamentar as transações, para rastrear atividades ilícitas.' },
+                                { question: 'O que é uma CBDC (Central Bank Digital Currency)?', options: ['Uma versão digital da moeda de um país, emitida e controlada pelo Banco Central.', 'Uma criptomoeda totalmente descentralizada.', 'Uma moeda privada emitida por uma empresa.'], answer: 'Uma versão digital da moeda de um país, emitida e controlada pelo Banco Central.' },
+                                { question: 'Qual a principal diferença entre uma CBDC e o Bitcoin?', options: ['A CBDC é descentralizada e o Bitcoin é centralizado.', 'A CBDC é centralizada (controlada pelo governo) e o Bitcoin é descentralizado.', 'Ambas são a mesma coisa.'], answer: 'A CBDC é centralizada (controlada pelo governo) e o Bitcoin é descentralizado.' },
+                                { question: 'Qual dos seguintes é um benefício potencial de uma CBDC para um governo?', options: ['Permitir transações anônimas.', 'Aumentar a eficiência dos pagamentos, reduzir custos e combater atividades ilícitas.', 'Eliminar totalmente os bancos.'], answer: 'Aumentar a eficiência dos pagamentos, reduzir custos e combater atividades ilícitas.' },
+                                { question: 'Um governo decide impor um imposto de 20% sobre todas as transações de criptomoedas. Qual o principal impacto econômico esperado dessa política?', options: ['Aumento da adoção de criptomoedas.', 'O uso de exchanges centralizadas vai diminuir em favor de transações "peer-to-peer" para evitar o imposto.', 'Os bancos tradicionais serão eliminados.'], answer: 'O uso de exchanges centralizadas vai diminuir em favor de transações "peer-to-peer" para evitar o imposto.' },
+                                { question: 'Se um país adota o Bitcoin como moeda de curso legal, qual o principal risco econômico, dada a natureza da criptomoeda?', options: ['A economia se torna vulnerável à alta volatilidade do Bitcoin, afetando o poder de compra e o comércio internacional.', 'Aumento da estabilidade dos preços.', 'A economia cresce de forma sustentável.'], answer: 'A economia se torna vulnerável à alta volatilidade do Bitcoin, afetando o poder de compra e o comércio internacional.' }
+                            ]
+                        }
+                    ]
+                },
+            { id: 'history', name: 'História Econômica Mundial', icon: '📜', subphases: [
+                { id: 't1', name: 'Revolução Industrial', lessonContent: 'A transição de uma economia agrária para uma industrial, o surgimento do capitalismo moderno e a produção em massa.', quizzes: [
+                    { question: 'Qual fonte de energia foi crucial na primeira Revolução Industrial?', options: ['Petróleo', 'Eletricidade', 'Vapor'], answer: 'Vapor' },
+                    { question: 'Em qual país a Primeira Revolução Industrial começou?', options: ['Alemanha', 'França', 'Grã-Bretanha'], answer: 'Grã-Bretanha' },
+                    { question: 'Qual setor foi o pioneiro na mecanização durante a Revolução Industrial?', options: ['Têxtil', 'Siderúrgico', 'Agrícola'], answer: 'Têxtil' },
+                    { question: 'O que o termo "Êxodo Rural" significa neste contexto?', options: ['Pessoas voltando ao campo', 'Migração de pessoas do campo para as cidades', 'Aumento da produção agrícola'], answer: 'Migração de pessoas do campo para as cidades' },
+                    { question: 'Qual classe social surgiu como a principal força de trabalho nas fábricas?', options: ['Nobreza', 'Proletariado', 'Artesãos'], answer: 'Proletariado' },
+                    { question: 'A invenção da "Spinning Jenny" impactou qual produção?', options: ['Aço', 'Fios e tecidos', 'Alimentos'], answer: 'Fios e tecidos' },
+                    { question: 'Qual economista é considerado o pai do liberalismo clássico, cujas ideias floresceram na época?', options: ['Karl Marx', 'Adam Smith', 'John M. Keynes'], answer: 'Adam Smith' },
+                    { question: 'O que a Segunda Revolução Industrial (final do séc. XIX) introduziu principalmente?', options: ['Eletricidade e Petróleo', 'Vapor e Carvão', 'Energia Eólica'], answer: 'Eletricidade e Petróleo' },
+                    { question: 'Qual foi a principal consequência social da rápida urbanização?', options: ['Melhoria imediata da qualidade de vida', 'Criação de vilas operárias com condições precárias', 'Diminuição da poluição'], answer: 'Criação de vilas operárias com condições precárias' },
+                    { question: 'Qual invenção de transporte revolucionou o comércio de longa distância na era industrial?', options: ['Ferrovia (locomotiva a vapor)', 'Carruagem melhorada', 'Bicicleta'], answer: 'Ferrovia (locomotiva a vapor)' }
+                ]},
+                { id: 't2', name: 'O Padrão Ouro', lessonContent: 'O sistema monetário onde o valor da moeda nacional é diretamente ligado a uma quantidade de ouro.', quizzes: [
+                    { question: 'O Padrão Ouro buscava principalmente promover...?', options: ['Flexibilidade monetária', 'Estabilidade cambial', 'Inflação alta'], answer: 'Estabilidade cambial' },
+                    { question: 'Sob o Padrão Ouro, o que um Banco Central deveria fazer se estivesse perdendo ouro?', options: ['Imprimir mais dinheiro', 'Aumentar a taxa de juros', 'Reduzir impostos'], answer: 'Aumentar a taxa de juros' },
+                    { question: 'Qual era a principal desvantagem do Padrão Ouro durante uma recessão?', options: ['Impedia o governo de aumentar a oferta de moeda', 'Causava inflação alta', 'Facilitava o endividamento'], answer: 'Impedia o governo de aumentar a oferta de moeda' },
+                    { question: 'O Padrão Ouro clássico atingiu seu auge em qual período?', options: ['1950-1960', '1870-1914', '1990-2000'], answer: '1870-1914' },
+                    { question: 'Qual evento histórico levou à suspensão generalizada do Padrão Ouro?', options: ['Primeira Guerra Mundial', 'Crise do Petróleo', 'Guerra Fria'], answer: 'Primeira Guerra Mundial' },
+                    { question: 'O que significa "lastro" no Padrão Ouro?', options: ['O navio que transportava o ouro', 'A garantia física (ouro) que dava valor à moeda de papel', 'Um imposto sobre metais preciosos'], answer: 'A garantia física (ouro) que dava valor à moeda de papel' },
+                    { question: 'Qual país era o centro financeiro mundial durante o auge do Padrão Ouro?', options: ['Estados Unidos', 'Alemanha', 'Reino Unido'], answer: 'Reino Unido' },
+                    { question: 'O que acontecia com a moeda de um país se ele imprimisse dinheiro sem o lastro em ouro correspondente?', options: ['Ela se valorizava', 'Perdia a credibilidade e a convertibilidade', 'Nada, o ouro não era importante'], answer: 'Perdia a credibilidade e a convertibilidade' },
+                    { question: 'Por que os países em guerra abandonaram o Padrão Ouro?', options: ['Para financiar os custos da guerra imprimindo dinheiro', 'Porque o ouro foi todo roubado', 'Para adotar o Padrão Prata'], answer: 'Para financiar os custos da guerra imprimindo dinheiro' },
+                    { question: 'O sistema que substituiu o Padrão Ouro após a Segunda Guerra Mundial foi...', options: ['O Padrão Prata', 'O sistema de Bretton Woods', 'O Euro'], answer: 'O sistema de Bretton Woods' }
+                ]},
+                { id: 't3', name: 'A Crise de 1929', lessonContent: 'As causas, o colapso do mercado de ações e as consequências da Grande Depressão.', quizzes: [
+                    { question: 'Qual foi o principal dia de pânico na Bolsa de Valores de Nova York em 1929?', options: ['Quinta-feira Negra', 'Sexta-feira Negra', 'Sábado Negro'], answer: 'Quinta-feira Negra' },
+                    { question: 'Qual prática especulativa permitia comprar ações pagando apenas uma fração do valor (com dinheiro emprestado)?', options: ['Compra a termo', 'Compra na margem (buying on margin)', 'IPO'], answer: 'Compra na margem (buying on margin)' },
+                    { question: 'Qual foi o nome do período de severa recessão econômica global que se seguiu à crise?', options: ['A Grande Fome', 'A Grande Depressão', 'Os Anos Sombrios'], answer: 'A Grande Depressão' },
+                    { question: 'Além da especulação, qual foi a outra causa econômica interna dos EUA que levou à crise?', options: ['Falta de produção industrial', 'Superprodução industrial e agrícola', 'Altos salários dos trabalhadores'], answer: 'Superprodução industrial e agrícola' },
+                    { question: 'Qual lei de tarifas protecionistas dos EUA piorou a crise ao reduzir o comércio internacional?', options: ['Lei Seca', 'Lei Smoot-Hawley', 'Lei Glass-Steagall'], answer: 'Lei Smoot-Hawley' },
+                    { question: 'Que fenômeno de pânico levou à falência de milhares de bancos nos EUA?', options: ['Corridas aos bancos (bank runs)', 'Investimento excessivo', 'Greves gerais'], answer: 'Corridas aos bancos (bank runs)' },
+                    { question: 'Qual presidente dos EUA implementou o "New Deal" para combater a Depressão?', options: ['Herbert Hoover', 'Franklin D. Roosevelt', 'Theodore Roosevelt'], answer: 'Franklin D. Roosevelt' },
+                    { question: 'As ideias de qual economista influenciaram o "New Deal" e a intervenção do governo na economia?', options: ['Adam Smith', 'John Maynard Keynes', 'Milton Friedman'], answer: 'John Maynard Keynes' },
+                    { question: 'O que aconteceu com a taxa de desemprego nos EUA durante o auge da Grande Depressão?', options: ['Permaneceu baixa, em 5%', 'Subiu moderadamente, para 10%', 'Subiu drasticamente, para cerca de 25%'], answer: 'Subiu drasticamente, para cerca de 25%' },
+                    { question: 'Qual foi o impacto da Crise de 1929 no sistema do Padrão Ouro?', options: ['Fortaleceu o Padrão Ouro', 'Levou a maioria dos países a abandonar o Padrão Ouro', 'Não teve impacto no sistema monetário'], answer: 'Levou a maioria dos países a abandonar o Padrão Ouro' }
+                ]},
+                { id: 't4', name: 'Bretton Woods e FMI', lessonContent: 'O acordo pós-guerra que estabeleceu o dólar como moeda de referência e criou o Fundo Monetário Internacional.', quizzes: [
+                    { question: 'O acordo de Bretton Woods foi estabelecido após qual evento?', options: ['Guerra Fria', 'Segunda Guerra Mundial', 'Guerra do Vietnã'], answer: 'Segunda Guerra Mundial' },
+                    { question: 'Qual moeda foi estabelecida como a principal moeda de reserva internacional em Bretton Woods?', options: ['Libra Esterlina', 'Ouro', 'Dólar Americano'], answer: 'Dólar Americano' },
+                    { question: 'O Dólar Americano era a única moeda conversível em...?', options: ['Prata', 'Petróleo', 'Ouro'], answer: 'Ouro' },
+                    { question: 'Qual instituição foi criada em Bretton Woods para fornecer empréstimos de reconstrução (e hoje foca em desenvolvimento)?', options: ['Banco Mundial (BIRD)', 'Organização Mundial do Comércio (OMC)', 'Banco Central Europeu'], answer: 'Banco Mundial (BIRD)' },
+                    { question: 'Qual instituição foi criada para garantir a estabilidade das taxas de câmbio e ajudar países com déficits temporários?', options: ['Fundo Monetário Internacional (FMI)', 'GATT', 'Nações Unidas'], answer: 'Fundo Monetário Internacional (FMI)' },
+                    { question: 'O sistema de Bretton Woods era um regime de câmbio...', options: ['Fixo (atrelado ao dólar)', 'Totalmente flutuante', 'Baseado em criptomoedas'], answer: 'Fixo (atrelado ao dólar)' },
+                    { question: 'Qual presidente dos EUA anunciou o fim da conversibilidade do dólar em ouro, encerrando o sistema de Bretton Woods?', options: ['John F. Kennedy', 'Richard Nixon', 'Ronald Reagan'], answer: 'Richard Nixon' },
+                    { question: 'Em que ano o sistema de Bretton Woods entrou em colapso?', options: ['1945', '1960', '1971'], answer: '1971' },
+                    { question: 'O que substituiu o sistema de Bretton Woods?', options: ['O retorno ao Padrão Ouro', 'O sistema de câmbio flutuante', 'A adoção do Euro'], answer: 'O sistema de câmbio flutuante' },
+                    { question: 'Qual foi o principal arquiteto intelectual britânico do acordo de Bretton Woods?', options: ['Adam Smith', 'John Maynard Keynes', 'Winston Churchill'], answer: 'John Maynard Keynes' }
+                ]},
+                { id: 't5', name: 'A Crise do Petróleo (1970s)', lessonContent: 'O impacto da OPEP e o choque de preços que levou à estagflação em muitos países.', quizzes: [
+                    { question: 'O que é Estagflação?', options: ['Inflação com crescimento', 'Inflação com recessão', 'Deflação com recessão'], answer: 'Inflação com recessão' },
+                    { question: 'Qual organização foi responsável pelo choque de preços do petróleo em 1973?', options: ['ONU', 'OPEP', 'OMC'], answer: 'OPEP' },
+                    { question: 'A crise de 1973 foi uma retaliação política ligada a qual guerra?', options: ['Guerra do Vietnã', 'Guerra do Yom Kippur', 'Guerra Irã-Iraque'], answer: 'Guerra do Yom Kippur' },
+                    { question: 'A OPEP usou o petróleo como uma "arma" através de qual ação?', options: ['Aumentando a produção', 'Embargo (corte na produção e exportação)', 'Subsidiando o preço'], answer: 'Embargo (corte na produção e exportação)' },
+                    { question: 'O que o choque do petróleo causou nos custos de produção das indústrias ocidentais?', options: ['Uma queda drástica', 'Um aumento drástico', 'Nenhuma mudança'], answer: 'Um aumento drástico' },
+                    { question: 'O fenômeno da Estagflação desafiou qual teoria econômica dominante na época?', options: ['Liberalismo Clássico', 'Keynesianismo', 'Monetarismo'], answer: 'Keynesianismo' },
+                    { question: 'Qual foi a consequência do choque do petróleo para a Dívida Externa de países como o Brasil?', options: ['Diminuiu a dívida', 'Aumentou drasticamente a dívida', 'Não teve impacto'], answer: 'Aumentou drasticamente a dívida' },
+                    { question: 'O segundo choque do petróleo em 1979 foi causado por qual evento?', options: ['Revolução Iraniana', 'Invasão do Kuwait', 'Guerra do Afeganistão'], answer: 'Revolução Iraniana' },
+                    { question: 'A crise estimulou os países desenvolvidos a investir em...', options: ['Carros maiores (SUVs)', 'Eficiência energética e fontes alternativas', 'Aumento da dependência da OPEP'], answer: 'Eficiência energética e fontes alternativas' },
+                    { question: 'A Estagflação levou ao renascimento de quais ideias econômicas nos anos 80 (Reagan/Thatcher)?', options: ['Comunismo', 'Neoliberalismo/Monetarismo', 'Socialismo'], answer: 'Neoliberalismo/Monetarismo' }
+                ]},
+                { id: 't6', name: 'Ascensão da China e Leste Asiático', lessonContent: 'A transição econômica da China, Coreia do Sul e outros "Tigres Asiáticos" para potências globais.', quizzes: [
+                    { question: 'Qual país asiático é conhecido como um dos "Tigres Asiáticos"?', options: ['Índia', 'Coreia do Sul', 'Rússia'], answer: 'Coreia do Sul' },
+                    { question: 'Qual líder chinês iniciou as "Quatro Modernizações" e a abertura econômica?', options: ['Mao Zedong', 'Deng Xiaoping', 'Xi Jinping'], answer: 'Deng Xiaoping' },
+                    { question: 'O modelo de crescimento dos "Tigres Asiáticos" (Coreia do Sul, Taiwan, etc.) foi baseado em:', options: ['Mercado interno', 'Exportações', 'Agricultura'], answer: 'Exportações' },
+                    { question: 'O que são as "Zonas Econômicas Especiais" (ZEEs) na China?', options: ['Áreas de preservação ambiental', 'Áreas com incentivos fiscais para atrair investimento estrangeiro', 'Bases militares'], answer: 'Áreas com incentivos fiscais para atrair investimento estrangeiro' },
+                    { question: 'Qual o principal fator de produção que a China usou para se tornar a "fábrica do mundo"?', options: ['Capital abundante', 'Mão de obra barata e vasta', 'Tecnologia própria avançada'], answer: 'Mão de obra barata e vasta' },
+                    { question: 'Em que ano a China entrou na Organização Mundial do Comércio (OMC), impulsionando seu comércio?', options: ['1980', '1991', '2001'], answer: '2001' },
+                    { question: 'Os grandes conglomerados industriais sul-coreanos (como Samsung, Hyundai) são chamados de:', options: ['Zaibatsu', 'Keiretsu', 'Chaebols'], answer: 'Chaebols' },
+                    { question: 'A Crise Financeira Asiática de 1997 começou em qual país?', options: ['Japão', 'China', 'Tailândia'], answer: 'Tailândia' },
+                    { question: 'Qual foi a principal causa da Crise Asiática de 1997?', options: ['Déficit de petróleo', 'Bolha especulativa imobiliária e endividamento externo', 'Guerra comercial com os EUA'], answer: 'Bolha especulativa imobiliária e endividamento externo' },
+                    { question: 'O modelo chinês é frequentemente descrito como:', options: ['Capitalismo de Livre Mercado', 'Comunismo Puro', 'Socialismo de Mercado (Capitalismo de Estado)'], answer: 'Socialismo de Mercado (Capitalismo de Estado)' }
+                ]},
+            ]},
+            { id: 'econometrics', name: 'Investimentos', icon: '📊', subphases: [
+                   { id: 'diversification', name: 'Diversificação de Portfólio',lessonContent: 'A primeira coisa que um futuro investidor tem que aprender é como diversificar corretamente sua carteira. Uma boa diversificação pode leva-lo a não perder nada.',
+                            quizzes: [
+                                { question: 'Por que é importante diversificar?', options: ['Aumentar o risco', 'Diminuir o risco', 'Aumentar os custos'], answer: 'Diminuir o risco' },
+                                { question: 'Qual a relação entre risco e retorno no mundo dos investimentos?', options: ['Quanto maior o risco, maior o retorno esperado.', 'Quanto maior o risco, menor o retorno esperado.', 'Não há relação entre risco e retorno.'], answer: 'Quanto maior o risco, maior o retorno esperado.' },
+                                { question: 'O que é "alocação de ativos" e como ela se relaciona com a diversificação?', options: ['É a escolha dos ativos para a carteira.', 'É a distribuição dos ativos em diferentes classes para otimizar risco e retorno.', 'É a venda de ativos com prejuízo.'], answer: 'É a distribuição dos ativos em diferentes classes para otimizar risco e retorno.' },
+                                { question: 'O que é uma "carteira de investimentos"?', options: ['Uma bolsa para guardar dinheiro.', 'Um conjunto de ativos financeiros (ações, títulos, etc.) que um investidor possui.', 'Um tipo de investimento.'], answer: 'Um conjunto de ativos financeiros (ações, títulos, etc.) que um investidor possui.' },
+                                { question: 'Qual dos seguintes cenários é um exemplo de falta de diversificação?', options: ['Investir em uma única ação.', 'Investir em 10 ações diferentes.', 'Investir em ações e títulos do governo.'], answer: 'Investir em uma única ação.' },
+                                { question: 'Qual o principal objetivo da diversificação?', options: ['Eliminar todo e qualquer risco.', 'Reduzir o risco de perder dinheiro em caso de queda de um único ativo.', 'Garantir um lucro fixo.'], answer: 'Reduzir o risco de perder dinheiro em caso de queda de um único ativo.' },
+                                { question: 'Qual é o risco que não pode ser eliminado pela diversificação?', options: ['Risco de crédito.', 'Risco de liquidez.', 'Risco sistemático (ou de mercado).'], answer: 'Risco sistemático (ou de mercado).' },
+                                { question: 'Qual a principal regra da diversificação?', options: ['Colocar todos os ovos na mesma cesta.', 'Não colocar todos os ovos na mesma cesta.', 'Comprar apenas ativos de baixo risco.'], answer: 'Não colocar todos os ovos na mesma cesta.' },
+                                { question: 'Um investidor tem uma carteira de investimentos que inclui 50% de ações de uma empresa de tecnologia e 50% de títulos de renda fixa. Se o setor de tecnologia passa por uma crise, qual o principal benefício da diversificação?', options: ['A queda nas ações de tecnologia será parcialmente compensada pelo desempenho dos títulos de renda fixa.', 'As ações de tecnologia vão valorizar.', 'A carteira inteira irá a zero.'], answer: 'A queda nas ações de tecnologia será parcialmente compensada pelo desempenho dos títulos de renda fixa.' },
+                                { question: 'Se dois ativos têm uma "correlação negativa", o que significa para uma carteira diversificada?', options: ['Eles se movem juntos, logo quando um valoriza, o outro valoriza junto, dando um lucro muito grande, o que compensa qualquer possibilidade de queda futura.', 'Quando um valoriza, o outro tende a desvalorizar, e vice-versa, o que ajuda a reduzir a volatilidade da carteira.', 'Eles não têm relação.'], answer: 'Quando um valoriza, o outro tende a desvalorizar, e vice-versa, o que ajuda a reduzir a volatilidade da carteira.' }
+                            ]
+                        },
+               { id: 'goals', name: 'Definindo seus objetivos',lessonContent: 'Defina metas claras e realistas (SMART):(S) Específico: Seja claro sobre o quê você quer (comprar um carro, fazer uma viagem, aposentar-se).(M) Mensurável: Determine o valor exato necessário para alcançar o objetivo.(A) Atingível: Assegure-se de que o objetivo esteja alinhado com sua realidade financeira.(R) Relevante: Verifique se a meta é importante para você e terá um impacto positivo em sua vida.(T) Temporal (Com Prazo): Estabeleça um prazo específico para atingir a meta.',
+                            quizzes: [
+                                { question: 'Qual a primeira etapa para investir?', options: ['Comprar ações', 'Definir objetivos financeiros', 'Pedir um empréstimo'], answer: 'Definir objetivos financeiros' },
+                                { question: 'Por que é importante ter objetivos claros ao investir?', options: ['Para saber onde e por quanto tempo investir.', 'Para evitar impostos.', 'Para garantir 100% de lucro.'], answer: 'Para saber onde e por quanto tempo investir.' },
+                                { question: 'Qual tipo de investimento seria mais adequado para um objetivo de longo prazo, como a aposentadoria?', options: ['Caderneta de poupança.', 'Investimentos mais arriscados, como ações.', 'Dívidas com cartão de crédito.'], answer: 'Investimentos mais arriscados, como ações.' },
+                                { question: 'Qual dos seguintes é um exemplo de meta de curto prazo (até 1 ano)?', options: ['Comprar uma casa.', 'Aposentadoria.', 'Uma viagem de férias em 6 meses.'], answer: 'Uma viagem de férias em 6 meses.' },
+                                { question: 'Qual o principal benefício de um objetivo de longo prazo?', options: ['A possibilidade de obter retornos maiores, já que o tempo permite a recuperação de possíveis perdas.', 'A garantia de não perder dinheiro.', 'A possibilidade de resgatar o dinheiro a qualquer momento.'], answer: 'A possibilidade de obter retornos maiores, já que o tempo permite a recuperação de possíveis perdas.' },
+                                { question: 'O que o conceito de "tolerância a risco" significa?', options: ['O seu limite de dívidas.', 'O nível de risco que você está disposto a correr para alcançar seus objetivos.', 'A sua capacidade de tolerar o tédio.'], answer: 'O nível de risco que você está disposto a correr para alcançar seus objetivos.' },
+                                { question: 'Qual dos seguintes é um exemplo de meta de médio prazo (1 a 5 anos)?', options: ['Comprar um carro à vista.', 'Fazer uma viagem de férias no próximo mês.', 'Aposentadoria em 30 anos.'], answer: 'Comprar um carro à vista.' },
+                                { question: 'Para um objetivo de longo prazo, como a aposentadoria, qual o principal risco a ser evitado?', options: ['Risco de liquidez.', 'Risco de não render mais que a inflação.', 'Risco de crédito.'], answer: 'Risco de não render mais que a inflação.' },
+                                { question: 'Se um jovem de 25 anos planeja se aposentar aos 65, qual seria a alocação de ativos ideal para ele?', options: ['100% em renda fixa para não correr riscos e garantir maior lucro em curto prazo.', 'Uma maior porcentagem em renda variável e ativos de maior risco, já que o horizonte de tempo é longo.', 'Apenas em Tesouro Direto.'], answer: 'Uma maior porcentagem em renda variável e ativos de maior risco, já que o horizonte de tempo é longo.' },
+                                { question: 'Um investidor tem R$ 50.000,00 e precisa do dinheiro em 6 meses para pagar a entrada de um apartamento. Qual o tipo de investimento que ele deve priorizar?', options: ['Ações de empresas.', 'Fundos de ações com alta flexibilidade e alto risco.', 'Ativos de alta liquidez e baixo risco, como um CDB com liquidez diária ou Tesouro Selic.'], answer: 'Ativos de alta liquidez e baixo risco, como um CDB com liquidez diária ou Tesouro Selic.' }
+                            ]
+                        },
+                 { id: 'stock-market', name: 'O Mercado de Ações',lessonContent: 'O mercado de ações é um ambiente público e organizado para negociação de alguns títulos mobiliários e imobiliários. ',
+                            quizzes: [
+                                { question: 'O que representa uma ação?', options: ['Um tipo de moeda', 'Uma porcentagem de posse de uma empresa', 'Um título de dívida longa'], answer: 'Uma porcentagem de posse de uma empresa' },
+                                { question: 'O que é uma "empresa de capital aberto"?', options: ['Uma empresa familiar.', 'Uma empresa que vende ações na bolsa.', 'Uma empresa sem fins lucrativos.'], answer: 'Uma empresa que vende ações na bolsa.' },
+                                { question: 'Por que o preço de uma ação sobe ou desce?', options: ['Apenas por decisão do governo.', 'Pela lei da oferta e demanda no mercado.', 'Sempre que a empresa tem lucro.'], answer: 'Pela lei da oferta e demanda no mercado.' },
+                                { question: 'O que o "dividendo" de uma ação significa?', options: ['Uma parte do lucro da empresa distribuída aos acionistas.', 'A valorização da ação.', 'Um imposto sobre o investimento de acionistas.'], answer: 'Uma parte do lucro da empresa distribuída aos acionistas.' },
+                                { question: 'O que é "IPO" (Initial Public Offering)?', options: ['O processo de compra de ações de uma empresa.', 'O processo de uma empresa se tornar de capital aberto e vender ações pela primeira vez na bolsa.', 'O processo de fusão entre uma empresa que dá lucro com uma que dá prejuizo.'], answer: 'O processo de uma empresa se tornar de capital aberto e vender ações pela primeira vez na bolsa.' },
+                                { question: 'Qual o principal objetivo de uma empresa ao vender ações na bolsa?', options: ['Levantar capital para expandir seus negócios.', 'Perder controle sobre a empresa.', 'Pagar suas dívidas.'], answer: 'Levantar capital para expandir seus negócios.' },
+                                { question: 'Qual o principal risco de investir em ações?', options: ['O risco de não render nada.', 'O risco de o valor da ação cair e você perder dinheiro.', 'O risco de a empresa não pagar dividendos.'], answer: 'O risco de o valor da ação cair e você perder dinheiro.' },
+                                { question: 'Qual o principal motivo para o preço de uma ação subir?', options: ['A empresa ter lucro.', 'O governo decidir.', 'A expectativa de que a empresa terá um bom desempenho futuro, aumentando a demanda pela ação.'], answer: 'A expectativa de que a empresa terá um bom desempenho futuro, aumentando a demanda pela ação.' },
+                                { question: 'Um investidor compra 100 ações de uma empresa por R$ 20,00 cada. A empresa anuncia um resultado ruim, e a ação cai para R$ 15,00. Qual o prejuízo total do investidor, em termos nominais?', options: ['R$ 5,00', 'R$ 50,00', 'R$ 500,00', 'R$ 1.000,00'], answer: 'R$ 500,00' },
+                                { question: 'O "valuation" de uma empresa de capital aberto se refere a:', options: ['O preço da ação no mercado.', 'O valor de todos os ativos da empresa.', 'A estimativa do valor justo de uma empresa para fins de investimento, usando métodos como fluxo de caixa descontado.'], answer: 'A estimativa do valor justo de uma empresa para fins de investimento, usando métodos como fluxo de caixa descontado.' }
+                            ]
+                        },
+                 { id: 'etfs', name: 'ETFs e Fundos de Investimento',lessonContent: 'ETFs são fundos de investimentos que buscam espelhar o desempenho e a composição de um índice de referência ',
+                            quizzes: [
+                                { question: 'O que é um ETF?', options: ['Um tipo de criptomoeda', 'Uma dívida do governo com a Inglaterra criada após a guerra do  Paraguai', 'Um fundo que replica um índice de mercado'], answer: 'Um fundo que replica um índice de mercado' },
+                                { question: 'Qual a principal vantagem de investir em um ETF?', options: ['A alta volatilidade.', 'A possibilidade de diversificar a carteira com um único investimento.', 'A garantia de retorno.'], answer: 'A possibilidade de diversificar a carteira com um único investimento.' },
+                                { question: 'O que significa a sigla ETF?', options: ['Equity Trading Fund', 'Exchange-Traded Fund', 'Economic Trust Foundation'], answer: 'Exchange-Traded Fund' },
+                                { question: 'Qual a principal diferença entre um ETF e um fundo de investimento tradicional?', options: ['O ETF é negociado em bolsa como uma ação.', 'O ETF é gerido por um gerente.', 'O ETF não tem taxas.'], answer: 'O ETF é negociado em bolsa como uma ação.' },
+                                { question: 'O que é um "índice de mercado"?', options: ['Um indicador que reflete o desempenho de um grupo de ativos.', 'Um tipo de imposto baseado na renda da família dividida pela quantidade de pessoas.', 'O preço de uma única ação.'], answer: 'Um indicador que reflete o desempenho de um grupo de ativos.' },
+                                { question: 'O ETF Bova11 replica o índice Bovespa. Se o índice Bovespa sobe 5%, o que se espera que aconteça com o Bova11?', options: ['Ele caia.', 'Ele suba em torno de 5%.', 'Ele suba 10%.'], answer: 'Ele suba em torno de 5%.' },
+                                { question: 'Qual a principal taxa cobrada em um ETF?', options: ['Taxa de administração (menor que a de fundos tradicionais).', 'Taxa de custódia.', 'Taxa de performance.'], answer: 'Taxa de administração (menor que a de fundos tradicionais).' },
+                                { question: 'Qual a principal função de um gestor de fundos?', options: ['Comprar ações para si mesmo.', 'Gerenciar o portfólio de um fundo para maximizar os retornos e minimizar os riscos.', 'Apenas coletar taxas.'], answer: 'Gerenciar o portfólio de um fundo para maximizar os retornos e minimizar os riscos.' },
+                                { question: 'Por que os ETFs são considerados um investimento de "gestão passiva"?', options: ['Porque o gestor não faz nada.', 'Porque eles são negociados passivamente na bolsa.', 'Porque o fundo apenas replica um índice de mercado em vez de tentar superá-lo ativamente.'], answer: 'Porque o fundo apenas replica um índice de mercado em vez de tentar superá-lo ativamente.' },
+                                { question: 'Um investidor compra um ETF que replica o índice S&P 500. Se a economia americana entra em recessão, qual o principal risco que ele corre?', options: ['O risco de a economia brasileira entrar em recessão.', 'O risco de a bolsa americana cair, o que fará o valor do ETF cair.', 'O risco de o dólar se desvalorizar.'], answer: 'O risco de a bolsa americana cair, o que fará o valor do ETF cair.' }
+                            ]
+                        },
+                 { id: 'real-estate', name: 'Fundos de Imóveis',lessonContent: 'Descubra como investir em imóveis sem precisar comprar uma propriedade física.',
+                            quizzes: [
+                                { question: 'Qual a principal vantagem de investir em FIIs?', options: ['Ter que lidar com inquilinos', 'Ser o único dono do imóvel', 'Receber aluguéis sem ter o imóvel físico'], answer: 'Receber aluguéis sem ter o imóvel físico' },
+                                { question: 'O que são FIIs?', options: ['Fundos que investem em empreendimentos imobiliários.', 'Empresas de construção civil.', 'Títulos de renda fixa.'], answer: 'Fundos que investem em empreendimentos imobiliários.' },
+                                { question: 'Qual o principal benefício fiscal de investir em FIIs (Fundos de Investimento Imobiliário)?', options: ['Isenção de IR sobre o ganho de capital.', 'Isenção de IR sobre os dividendos (rendimentos dos aluguéis).', 'Não paga IOF.'], answer: 'Isenção de IR sobre os dividendos (rendimentos dos aluguéis).' },
+                                { question: 'O que é um "dividendo" em um FII?', options: ['O preço da cota.', 'A valorização das cotas.', 'O valor pago periodicamente aos cotistas, geralmente oriundo dos aluguéis.'], answer: 'O valor pago periodicamente aos cotistas, geralmente oriundo dos aluguéis.' },
+                                { question: 'Qual o principal risco de investir em FIIs?', options: ['Não haver inquilinos para os imóveis.', 'O risco de o valor da cota cair, ou a falta de inquilinos, o que reduz os dividendos.', 'A isenção de imposto de renda.'], answer: 'O risco de o valor da cota cair, ou a falta de inquilinos, o que reduz os dividendos.' },
+                                { question: 'O que é uma "cota" de um FII?', options: ['Uma dívida do fundo.', 'Uma porcentagem de posse do fundo.', 'O valor de um aluguel.'], answer: 'Uma porcentagem de posse do fundo.' },
+                                { question: 'Qual a principal vantagem de um FII sobre a compra de um imóvel físico?', options: ['Maior liquidez e facilidade de diversificação.', 'Maior custo e burocracia.', 'A garantia de não perder dinheiro.'], answer: 'Maior liquidez e facilidade de diversificação.' },
+                                { question: 'Os FIIs são negociados em...', options: ['Bancos.', 'Casas lotéricas.', 'Bolsa de Valores.'], answer: 'Bolsa de Valores.' },
+                                { question: 'Um investidor compra cotas de um FII que investe em shoppings centers. Se a economia entra em recessão e o consumo das famílias diminui, qual o principal risco?', options: ['Aumento dos aluguéis.', 'Aumento do valor da cota.', 'Inquilinos podem deixar os imóveis, reduzindo os dividendos do FII.'], answer: 'Inquilinos podem deixar os imóveis, reduzindo os dividendos do FII.' },
+                                { question: 'Um FII tem 100 cotas, e seu patrimônio total é de R$ 10.000,00. Se um novo investidor compra uma cota por R$ 100,00 e o fundo recebe um aluguel de R$ 500,00, qual o valor por cota que será distribuído como dividendo, desconsiderando taxas?', options: ['R$ 5,00', 'R$ 10,00', 'R$ 20,00', 'R$ 50,00'], answer: 'R$ 5,00' }
+                            ]
+                        },
+                  { id: 'compound', name: 'O Poder dos Juros Compostos',lessonContent: 'M = C x (1 + i)^t,  onde M é o montante final, C é o capital inicial, i é a taxa de juros (em decimal) e t é o tempo da aplicação ou empréstimo.',
+                            quizzes: [
+                                { question: 'O que faz o dinheiro "trabalhar para você"?', options: ['Taxa de juros simples', 'Empréstimos', 'Juros compostos'], answer: 'Juros compostos' },
+                                { question: 'Juros compostos são calculados sobre:', options: ['O capital inicial apenas.', 'O capital inicial mais os juros acumulados.', 'Apenas os lucros mensais.'], answer: 'O capital inicial mais os juros acumulados.' },
+                                { question: 'Qual a principal variável para que os juros compostos funcionem de forma mais eficaz?', options: ['A quantidade de dinheiro investido.', 'A frequência dos depósitos.', 'O tempo de investimento.'], answer: 'O tempo de investimento.' },
+                                { question: 'Qual a diferença entre juros simples e compostos?', options: ['Juros simples são calculados sobre o capital inicial, e os compostos sobre o capital e os juros acumulados.', 'Juros simples são sempre maiores que os compostos.', 'Juros simples são usados em empréstimos e os compostos em investimentos.'], answer: 'Juros simples são calculados sobre o capital inicial, e os compostos sobre o capital e os juros acumulados.' },
+                                { question: 'O que é "reinvestimento de lucros"?', options: ['Gastar o lucro.', 'Usar o lucro de um investimento para fazer novas aplicações.', 'Doar o lucro.'], answer: 'Usar o lucro de um investimento para fazer novas aplicações.' },
+                                { question: 'Se você investe R$ 1.000,00 e ele rende 10% ao ano, quanto você terá após 2 anos, com juros compostos?', options: ['R$ 1.200,00', 'R$ 1.210,00', 'R$ 1.100,00'], answer: 'R$ 1.210,00' },
+                                { question: 'Por que o tempo é o principal aliado dos juros compostos?', options: ['Porque o efeito do reinvestimento de lucros se acelera exponencialmente ao longo dos anos.', 'Porque as taxas de juros sobem com o tempo.', 'Porque você tem mais tempo para economizar.'], answer: 'Porque o efeito do reinvestimento de lucros se acelera exponencialmente ao longo dos anos.' },
+                                { question: 'Qual dos seguintes é um exemplo de juros compostos?', options: ['A caderneta de poupança.', 'O cheque especial.', 'As dívidas de cartão de crédito.'], answer: 'As dívidas de cartão de crédito.' },
+                                { question: 'Um investidor de 20 anos começa a investir R$ 100,00 por mês, rendendo 1% ao mês. Um investidor de 40 anos começa a investir R$ 300,00 por mês, com a mesma rentabilidade. Qual dos dois terá mais dinheiro acumulado aos 60 anos?', options: ['O investidor de 40 anos.', 'O investidor de 20 anos.', 'Ambos terão o mesmo valor.'], answer: 'O investidor de 20 anos.' },
+                                { question: 'A regra de 72 é um atalho para estimar o tempo que um investimento leva para dobrar de valor. A fórmula é: 72 / (taxa de juros anual). Se um investimento rende 12% ao ano, em quantos anos ele irá dobrar de valor?', options: ['5 anos', '6 anos', '7 anos', '8 anos'], answer: '6 anos' }
+                            ]
+                        }
+            ]},
+            { id: 'trade', name: 'Comércio Internacional', icon: '🚢', subphases: [
+                { id: 'd1', name: 'Vantagem Comparativa e Absoluta', lessonContent: 'Os princípios de David Ricardo e Adam Smith que explicam por que os países comercializam.', quizzes: [
+                    { question: 'Quem formulou a teoria da "Vantagem Absoluta"?', options: ['David Ricardo', 'Adam Smith', 'Karl Marx'], answer: 'Adam Smith' },
+                    { question: 'Quem formulou a teoria da "Vantagem Comparativa"?', options: ['David Ricardo', 'Adam Smith', 'Paul Krugman'], answer: 'David Ricardo' },
+                    { question: 'A Vantagem Comparativa sugere que um país deve se especializar em produzir o bem que tem o menor...', options: ['Custo de oportunidade', 'Custo absoluto', 'Número de trabalhadores'], answer: 'Custo de oportunidade' },
+                    { question: 'Se o País A produz Vinho (10h) e Tecido (20h) e o País B produz Vinho (30h) e Tecido (40h), o País A tem vantagem absoluta em:', options: ['Ambos', 'Apenas Vinho', 'Apenas Tecido'], answer: 'Ambos' },
+                    { question: 'Usando o exemplo anterior (A: V10, T20; B: V30, T40), qual o custo de oportunidade de 1 Vinho no País A?', options: ['2 Tecidos', '0.5 Tecido', '10 Tecidos'], answer: '0.5 Tecido' },
+                    { question: 'Usando o exemplo anterior (A: V10, T20; B: V30, T40), qual o custo de oportunidade de 1 Vinho no País B?', options: ['0.75 Tecido', '1.33 Tecido', '30 Tecidos'], answer: '0.75 Tecido' },
+                    { question: 'Com base no custo de oportunidade, em qual produto o País A (0.5T) deve se especializar?', options: ['Vinho', 'Tecido', 'Nenhum'], answer: 'Vinho' },
+                    { question: 'A teoria da Vantagem Comparativa demonstra que o comércio é benéfico...', options: ['Apenas para o país mais rico', 'Apenas para o país mais pobre', 'Para todos os países envolvidos'], answer: 'Para todos os países envolvidos' },
+                    { question: 'A "Vantagem Absoluta" significa ser...', options: ['Mais produtivo (usar menos recursos) que o concorrente', 'Ter o menor custo de oportunidade', 'Ter mais ouro'], answer: 'Mais produtivo (usar menos recursos) que o concorrente' },
+                    { question: 'A principal crítica moderna à teoria da Vantagem Comparativa é que ela ignora...', options: ['Custos de transporte e mobilidade de capital', 'A existência de dinheiro', 'A diferença entre países'], answer: 'Custos de transporte e mobilidade de capital' }
+                ]},
+                { id: 'd2', name: 'Balança de Pagamentos', lessonContent: 'O registro de todas as transações econômicas entre residentes de um país e o resto do mundo.', quizzes: [
+                    { question: 'A Balança Comercial é uma parte de qual agregado?', options: ['PIB', 'Balança de Capital', 'Balança de Pagamentos'], answer: 'Balança de Pagamentos' },
+                    { question: 'A Balança de Pagamentos é sempre...', options: ['Deficitária', 'Superavitária', 'Equilibrada (soma zero)'], answer: 'Equilibrada (soma zero)' },
+                    { question: 'A "Balança Comercial" registra o quê?', options: ['Investimentos estrangeiros', 'Exportações e Importações de Bens', 'Empréstimos internacionais'], answer: 'Exportações e Importações de Bens' },
+                    { question: 'Se um país exporta $100bi e importa $80bi em bens, ele tem um...', options: ['Déficit comercial de $20bi', 'Superávit comercial de $20bi', 'Equilíbrio comercial'], answer: 'Superávit comercial de $20bi' },
+                    { question: 'Em qual conta da Balança de Pagamentos entram os investimentos estrangeiros diretos (IED)?', options: ['Conta Corrente', 'Conta de Capital e Financeira', 'Erros e Omissões'], answer: 'Conta de Capital e Financeira' },
+                    { question: 'A "Conta Corrente" inclui a Balança Comercial mais a balança de...', options: ['Serviços e Rendas', 'Investimentos diretos', 'Reservas internacionais'], answer: 'Serviços e Rendas' },
+                    { question: 'O que significa um "Déficit em Conta Corrente"?', options: ['O país está exportando mais do que importando', 'O país está recebendo mais investimentos do que enviando', 'O país está gastando mais com o exterior (importações, serviços) do que recebendo'], answer: 'O país está gastando mais com o exterior (importações, serviços) do que recebendo' },
+                    { question: 'Como um país financia um Déficit em Conta Corrente?', options: ['Imprimindo moeda local', 'Com entrada de capital estrangeiro (investimentos ou empréstimos)', 'Reduzindo suas exportações'], answer: 'Com entrada de capital estrangeiro (investimentos ou empréstimos)' },
+                    { question: 'O que são "Remessas" na Balança de Pagamentos?', options: ['Dinheiro enviado por imigrantes para seus países de origem', 'Pagamento de juros da dívida', 'Compra de produtos importados'], answer: 'Dinheiro enviado por imigrantes para seus países de origem' },
+                    { question: 'A variação das "Reservas Internacionais" (ouro, dólares) do Banco Central equilibra qual conta?', options: ['A Balança Comercial', 'O Balanço de Pagamentos como um todo', 'A Conta de Serviços'], answer: 'O Balanço de Pagamentos como um todo' }
+                ]},
+                { id: 'd3', name: 'Taxas de Câmbio', lessonContent: 'Como as moedas são trocadas (câmbio fixo, flutuante e híbrido) e o que afeta seu valor.', quizzes: [
+                    { question: 'Qual regime cambial é determinado livremente pelo mercado?', options: ['Fixo', 'Controlado', 'Flutuante'], answer: 'Flutuante' },
+                    { question: 'O que é "Taxa de Câmbio"?', options: ['Um imposto de importação', 'O preço de uma moeda em relação a outra', 'A taxa de juros internacional'], answer: 'O preço de uma moeda em relação a outra' },
+                    { question: 'Se o câmbio Real/Dólar vai de R$5,00 para R$5,50, o Real...', options: ['Valorizou-se', 'Desvalorizou-se', 'Permaneceu estável'], answer: 'Desvalorizou-se' },
+                    { question: 'Uma "desvalorização" cambial torna os produtos de um país...', options: ['Mais caros no exterior', 'Mais baratos no exterior (favorecendo exportações)', 'Proibidos no exterior'], answer: 'Mais baratos no exterior (favorecendo exportações)' },
+                    { question: 'O que o Banco Central faz no regime de "flutuação suja"?', options: ['Deixa o câmbio livre', 'Compra ou vende dólares para influenciar a taxa', 'Fixa o câmbio com ouro'], answer: 'Compra ou vende dólares para influenciar a taxa' },
+                    { question: 'No regime de Câmbio Fixo, quem garante o valor da moeda?', options: ['O mercado', 'As empresas exportadoras', 'O Banco Central (com suas reservas)'], answer: 'O Banco Central (com suas reservas)' },
+                    { question: 'O que é a "Taxa de Câmbio Real"?', options: ['A taxa de câmbio nominal ajustada pela inflação', 'A taxa de câmbio oficial do governo', 'A taxa de câmbio do mercado paralelo'], answer: 'A taxa de câmbio nominal ajustada pela inflação' },
+                    { question: 'Se os juros (Taxa Selic) no Brasil sobem muito, qual a tendência para o Dólar?', options: ['Subir (Real desvalorizar)', 'Cair (Real valorizar)', 'Não há relação'], answer: 'Cair (Real valorizar)' },
+                    { question: 'Por que um aumento dos juros (Selic) tende a valorizar o Real?', options: ['Porque atrai capital estrangeiro (investidores) buscando maior rentabilidade', 'Porque desestimula o turismo', 'Porque o governo imprime mais dinheiro'], answer: 'Porque atrai capital estrangeiro (investidores) buscando maior rentabilidade' },
+                    { question: 'O que é "Hedge Cambial"?', options: ['Uma aposta na alta do dólar', 'Uma proteção contra a variação da taxa de câmbio', 'Um tipo de imposto'], answer: 'Uma proteção contra a variação da taxa de câmbio' }
+                ]},
+                { id: 'd4', name: 'Barreiras Comerciais', lessonContent: 'O uso de tarifas, cotas e barreiras não-tarifárias para proteger indústrias domésticas.', quizzes: [
+                    { question: 'Um imposto sobre bens importados é chamado de...?', options: ['Subsídio', 'Cota', 'Tarifa'], answer: 'Tarifa' },
+                    { question: 'Qual é o objetivo principal de uma Tarifa de importação?', options: ['Facilitar o comércio internacional', 'Tornar o produto importado mais caro para proteger a indústria local', 'Gerar receita para o exportador'], answer: 'Tornar o produto importado mais caro para proteger a indústria local' },
+                    { question: 'O que é uma "Cota" de importação?', options: ['Um imposto percentual', 'Um limite na quantidade física de um bem que pode ser importado', 'Um subsídio para o importador'], answer: 'Um limite na quantidade física de um bem que pode ser importado' },
+                    { question: 'O que é um "Subsídio" à exportação?', options: ['Um imposto sobre a exportação', 'Ajuda financeira do governo para tornar o produto nacional mais barato no exterior', 'Uma cota de exportação'], answer: 'Ajuda financeira do governo para tornar o produto nacional mais barato no exterior' },
+                    { question: 'O conjunto de políticas que restringem o comércio internacional é chamado de:', options: ['Livre Comércio', 'Globalização', 'Protecionismo'], answer: 'Protecionismo' },
+                    { question: 'O que é uma "barreira não-tarifária"?', options: ['Um imposto baixo', 'Exigências técnicas, sanitárias ou burocráticas que dificultam a importação', 'Um limite de quantidade'], answer: 'Exigências técnicas, sanitárias ou burocráticas que dificultam a importação' },
+                    { question: 'Qual é o argumento principal usado para defender o protecionismo?', options: ['Aumentar a concorrência', 'Proteger a "indústria nascente" local da concorrência estrangeira', 'Reduzir os preços para o consumidor'], answer: 'Proteger a "indústria nascente" local da concorrência estrangeira' },
+                    { question: 'Qual é a principal desvantagem do protecionismo para os consumidores?', options: ['Aumento da variedade de produtos', 'Preços mais baixos', 'Preços mais altos e menor variedade de produtos'], answer: 'Preços mais altos e menor variedade de produtos' },
+                    { question: 'O que é "Dumping"?', options: ['Vender um produto no exterior por um preço abaixo do custo de produção', 'Estabelecer uma tarifa alta', 'Recusar-se a importar'], answer: 'Vender um produto no exterior por um preço abaixo do custo de produção' },
+                    { question: 'Uma "Guerra Comercial" geralmente envolve...', options: ['Cooperação entre países', 'Adoção de tarifas e barreiras retaliatórias entre países', 'Aumento de investimentos mútuos'], answer: 'Adoção de tarifas e barreiras retaliatórias entre países' }
+                ]},
+                { id: 'd5', name: 'Blocos Econômicos', lessonContent: 'Exemplos como Mercosul e União Europeia e os diferentes níveis de integração econômica.', quizzes: [
+                    { question: 'Qual é o nível mais básico de integração de um bloco econômico?', options: ['União Aduaneira', 'Zona de Livre Comércio', 'Mercado Comum'], answer: 'Zona de Livre Comércio' },
+                    { question: 'O que caracteriza uma "União Aduaneira" (como o Mercosul)?', options: ['Livre comércio interno + Tarifa Externa Comum (TEC)', 'Apenas livre comércio interno', 'Livre circulação de pessoas'], answer: 'Livre comércio interno + Tarifa Externa Comum (TEC)' },
+                    { question: 'O que o "Mercado Comum" adiciona à União Aduaneira?', options: ['Moeda única', 'Livre circulação de pessoas e capital', 'Apenas livre comércio'], answer: 'Livre circulação de pessoas e capital' },
+                    { question: 'A União Europeia (UE) é o exemplo mais avançado de integração, sendo uma...', options: ['Zona de Livre Comércio', 'União Econômica e Monetária', 'União Aduaneira'], answer: 'União Econômica e Monetária' },
+                    { question: 'O que é a "Tarifa Externa Comum" (TEC)?', options: ['Uma tarifa que cada país aplica individualmente', 'Uma tarifa única que todos os membros do bloco aplicam a países de fora', 'A ausência de tarifas'], answer: 'Uma tarifa única que todos os membros do bloco aplicam a países de fora' },
+                    { question: 'Qual destes países NÃO é um membro fundador do Mercosul?', options: ['Brasil', 'Argentina', 'Chile'], answer: 'Chile' },
+                    { question: 'O NAFTA (agora USMCA) é um exemplo de qual tipo de bloco?', options: ['Mercado Comum', 'União Aduaneira', 'Zona de Livre Comércio'], answer: 'Zona de Livre Comércio' },
+                    { question: 'A adoção do Euro (Moeda Única) é uma característica de qual nível de integração?', options: ['União Econômica e Monetária', 'Mercado Comum', 'Zona de Livre Comércio'], answer: 'União Econômica e Monetária' },
+                    { question: 'O que é "desvio de comércio" (trade diversion)?', options: ['Quando um país compra de um membro do bloco, mesmo que seja mais caro, por causa da TEC', 'Quando um país exporta mais', 'Quando um país adota o livre comércio'], answer: 'Quando um país compra de um membro do bloco, mesmo que seja mais caro, por causa da TEC' },
+                    { question: 'Qual o principal objetivo de formar um bloco econômico?', options: ['Aumentar o protecionismo contra todos', 'Aumentar a eficiência e o comércio entre os países membros', 'Preparar-se para uma guerra'], answer: 'Aumentar a eficiência e o comércio entre os países membros' }
+                ]},
+                { id: 'd6', name: 'Organismos Internacionais', lessonContent: 'O papel da OMC (WTO), Banco Mundial (BIRD) e FMI na governança global.', quizzes: [
+                    { question: 'Qual organismo arbitra disputas comerciais entre países membros?', options: ['FMI', 'Banco Mundial', 'OMC (WTO)'], answer: 'OMC (WTO)' },
+                    { question: 'Qual é o principal foco do Banco Mundial (BIRD)?', options: ['Estabilidade cambial', 'Financiamento de projetos de desenvolvimento e redução da pobreza', 'Regulação do comércio'], answer: 'Financiamento de projetos de desenvolvimento e redução da pobreza' },
+                    { question: 'Qual é o principal foco do Fundo Monetário Internacional (FMI)?', options: ['Financiamento de longo prazo para infraestrutura', 'Resolver disputas comerciais', 'Estabilidade monetária global e ajuda em crises de balanço de pagamentos'], answer: 'Estabilidade monetária global e ajuda em crises de balanço de pagamentos' },
+                    { question: 'A OMC (Organização Mundial do Comércio) é sucessora de qual acordo?', options: ['Bretton Woods', 'GATT', 'NAFTA'], answer: 'GATT' },
+                    { question: 'O que significa o princípio da "Nação Mais Favorecida" (MFN) da OMC?', options: ['Dar tratamento especial apenas aos países ricos', 'Qualquer vantagem comercial dada a um membro deve ser estendida a todos os outros', 'Priorizar o comércio com vizinhos'], answer: 'Qualquer vantagem comercial dada a um membro deve ser estendida a todos os outros' },
+                    { question: 'O que é a "Rodada de Doha"?', options: ['Uma negociação da OMC focada em desenvolvimento e agricultura', 'A criação do Euro', 'Um acordo de paz no Oriente Médio'], answer: 'Uma negociação da OMC focada em desenvolvimento e agricultura' },
+                    { question: 'As políticas de "condicionalidade" do FMI referem-se a...', options: ['Empréstimos sem juros', 'Exigência de reformas econômicas (como austeridade) para liberar empréstimos', 'Doações para caridade'], answer: 'Exigência de reformas econômicas (como austeridade) para liberar empréstimos' },
+                    { question: 'Qual destas instituições foi criada na conferência de Bretton Woods?', options: ['OMC', 'FMI e Banco Mundial', 'União Europeia'], answer: 'FMI e Banco Mundial' },
+                    { question: 'Onde fica a sede do Fundo Monetário Internacional (FMI)?', options: ['Genebra, Suíça', 'Nova York, EUA', 'Washington D.C., EUA'], answer: 'Washington D.C., EUA' },
+                    { question: 'A principal crítica aos órgãos como FMI e Banco Mundial é que eles...', options: ['São controlados por países em desenvolvimento', 'Muitas vezes impõem políticas neoliberais que podem prejudicar os mais pobres', 'São muito lentos para aprovar empréstimos'], answer: 'Muitas vezes impõem políticas neoliberais que podem prejudicar os mais pobres' }
+                ]},
+            ]},
+        ];
+       
+        // --- O restante do código foi adaptado para a nova estrutura aninhada ---
+        let phasesState = ALL_PHASES.map(p => ({
+            id: p.id,
+            name: p.name,
+            icon: p.icon,
+            completed: false,
+            subphases: p.subphases.map(s => ({ id: s.id, completed: false }))
+        }));
+
+        // Chave para o LocalStorage
+        const LOCAL_STORAGE_KEY = 'economic_study_progress_v2';
+
+        // --- Variáveis de Estado do Quiz ---
+        let currentPhaseId = null;
+        let currentSubphaseId = null; // Novo ID para a subfase atual
+        let currentPhaseOriginalQuizzes = [];
+        let questionsPool = [];
+        let missedInCurrentRun = [];
+        let currentQuizIndex = 0;
+        let isQuizLocked = false;
+       
+        // --- Funções Auxiliares de UI ---
+
+        const phasesGrid = document.getElementById('phases-grid');
+        const messageBox = document.getElementById('message-box');
+        const subphaseListModal = document.getElementById('subphase-list-modal');
+        const subphasesListContainer = document.getElementById('subphases-list-container');
+        const lessonModal = document.getElementById('lesson-modal');
+        const quizModal = document.getElementById('quiz-modal');
+        const quizOptionsContainer = document.getElementById('quiz-options');
+        const nextQuestionBtn = document.getElementById('next-question-btn');
+        const quizFeedback = document.getElementById('quiz-feedback');
+       
+        function findPhase(phaseId) {
+            return ALL_PHASES.find(p => p.id === phaseId);
+        }
+
+        function findSubphaseContent(phaseId, subphaseId) {
+            const phase = findPhase(phaseId);
+            if (!phase) return null;
+            return phase.subphases.find(s => s.id === subphaseId);
+        }
+
+        function findSubphaseState(phaseId, subphaseId) {
+            const phaseState = phasesState.find(p => p.id === phaseId);
+            if (!phaseState) return null;
+            return phaseState.subphases.find(s => s.id === subphaseId);
+        }
+
+        function showMessage(msg) {
+            messageBox.textContent = msg;
+            messageBox.classList.remove('hidden', 'opacity-0');
+            messageBox.classList.add('opacity-100');
+            setTimeout(() => {
+                messageBox.classList.remove('opacity-100');
+                messageBox.classList.add('opacity-0');
+                setTimeout(() => messageBox.classList.add('hidden'), 300);
+            }, 2500);
+        }
+       
+        function renderPhases() {
+            phasesGrid.innerHTML = '';
+            phasesState.forEach(state => {
+                const masterPhase = findPhase(state.id);
+                if (!masterPhase) return;
+
+                // Uma fase principal é concluída se todas as suas subfases estiverem concluídas
+                const isCompleted = state.subphases.every(s => s.completed);
+                state.completed = isCompleted; // Atualiza o estado da fase principal
+
+                const card = document.createElement('div');
+                card.id = `phase-${masterPhase.id}`;
+                card.className = `phase-card p-5 bg-white rounded-xl shadow-lg flex flex-col items-center text-center ${isCompleted ? 'completed shadow-inner' : 'hover:bg-indigo-50'}`;
+               
+                // Calcula o progresso visual da fase principal
+                const totalSubphases = state.subphases.length;
+                const completedSubphases = state.subphases.filter(s => s.completed).length;
+                const progressPercent = totalSubphases > 0 ? Math.round((completedSubphases / totalSubphases) * 100) : 0;
+               
+                card.innerHTML = `
+                    <div class="text-4xl mb-3">${masterPhase.icon}</div>
+                    <h2 class="text-xl font-semibold mb-2 ${isCompleted ? 'text-green-700' : 'text-gray-800'}">${masterPhase.name}</h2>
+                    <p class="text-sm text-gray-500 mb-4">${completedSubphases}/${totalSubphases} Subfases Concluídas</p>
+                    <div class="w-full bg-gray-200 rounded-full h-2.5 mb-4">
+                        <div class="bg-indigo-600 h-2.5 rounded-full ${isCompleted ? 'bg-green-600' : 'bg-indigo-600'}" style="width: ${progressPercent}%"></div>
+                    </div>
+                    <button id="btn-${masterPhase.id}"
+                            class="w-full py-2 rounded-lg font-bold transition-colors duration-200
+                                ${isCompleted
+                                    ? 'bg-green-500 text-white cursor-default'
+                                    : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-md hover:shadow-lg'}"
+                            >
+                        ${isCompleted ? '✅ Fase Completa' : 'Ver Subfases'}
+                    </button>
+                `;
+               
+                const button = card.querySelector(`#btn-${masterPhase.id}`);
+                button.addEventListener('click', () => renderSubphaseListModal(masterPhase.id));
+
+                phasesGrid.appendChild(card);
+            });
+        }
+
+        function renderSubphaseListModal(phaseId) {
+            const masterPhase = findPhase(phaseId);
+            const phaseState = phasesState.find(p => p.id === phaseId);
+
+            if (!masterPhase || !phaseState) return;
+           
+            // Define o ID da fase principal que estamos visualizando
+            currentPhaseId = phaseId;
+
+            document.getElementById('modal-subphase-list-title').textContent = `${masterPhase.icon} Subfases de ${masterPhase.name}`;
+            subphasesListContainer.innerHTML = '';
+
+            masterPhase.subphases.forEach(subphaseContent => {
+                const subphaseState = phaseState.subphases.find(s => s.id === subphaseContent.id);
+                const isCompleted = subphaseState ? subphaseState.completed : false;
+
+                const item = document.createElement('div');
+                // MODIFICAÇÃO: Adicionado 'cursor-pointer' para que o item seja clicável mesmo se 'isCompleted' for verdadeiro
+                item.className = `subphase-item p-4 rounded-lg flex items-center justify-between shadow-sm border border-gray-200 ${isCompleted ? 'bg-green-100 border-green-400' : 'bg-white'} cursor-pointer`;
+               
+                item.innerHTML = `
+                    <span class="font-medium text-lg ${isCompleted ? 'text-green-800 line-through' : 'text-gray-800'}">${subphaseContent.name}</span>
+                    <span class="text-xl ${isCompleted ? 'text-green-600' : 'text-indigo-600'}">
+                        ${isCompleted ? '✅' : '▶️'}
+                    </span>
+                `;
+
+                // MODIFICAÇÃO: O 'if (!isCompleted)' foi removido.
+                // O listener de clique agora é adicionado incondicionalmente.
+                item.addEventListener('click', () => {
+                    subphaseListModal.classList.add('hidden');
+                    renderLessonModal(phaseId, subphaseContent.id);
+                });
+               
+                subphasesListContainer.appendChild(item);
+            });
+
+            subphaseListModal.classList.remove('hidden');
+        }
+
+
+        function renderLessonModal(phaseId, subphaseId) {
+            const subphaseContent = findSubphaseContent(phaseId, subphaseId);
+            const masterPhase = findPhase(phaseId);
+           
+            if (!subphaseContent || !masterPhase) return;
+
+            // Armazena a subfase atual
+            currentPhaseId = phaseId;
+            currentSubphaseId = subphaseId;
+
+            document.getElementById('modal-lesson-title').textContent = `${masterPhase.icon} - ${subphaseContent.name}`;
+            // MODIFICAÇÃO: Usando innerHTML para renderizar o HTML da lição (se houver)
+            document.getElementById('modal-lesson-content').innerHTML = subphaseContent.lessonContent;
+           
+            document.getElementById('lesson-start-quiz-btn').onclick = () => {
+                lessonModal.classList.add('hidden');
+                startQuiz(phaseId, subphaseId);
+            };
+
+            lessonModal.classList.remove('hidden');
+        }
+
+        function startQuiz(phaseId, subphaseId) {
+            const subphaseContent = findSubphaseContent(phaseId, subphaseId);
+            if (!subphaseContent || !subphaseContent.quizzes) return;
+
+            // Inicialização do Quiz
+            currentPhaseId = phaseId;
+            currentSubphaseId = subphaseId;
+            currentPhaseOriginalQuizzes = subphaseContent.quizzes; // Quiz da Subfase
+            // MODIFICAÇÃO: Embaralha o pool de perguntas ao iniciar
+            questionsPool = [...subphaseContent.quizzes].sort(() => Math.random() - 0.5);
+            missedInCurrentRun = []; // Limpa o rastreamento de erros
+            currentQuizIndex = 0;
+            isQuizLocked = false;
+           
+            quizModal.classList.remove('hidden');
+            loadQuestion();
+        }
+
+        function loadQuestion() {
+            if (currentQuizIndex >= questionsPool.length) {
+                // Fim da Tentativa
+               
+                const missedCount = missedInCurrentRun.length;
+                const totalQuestions = currentPhaseOriginalQuizzes.length;
+               
+                // Limpa o conteúdo do quiz para exibir a tela de resultado/repetição
+                document.getElementById('quiz-question').textContent = "";
+                quizOptionsContainer.innerHTML = '';
+                nextQuestionBtn.classList.remove('hidden');
+
+                if (missedCount === 0) {
+                    // SUCESSO: Todas as perguntas, incluindo as repetidas, foram acertadas
+                    quizModal.classList.add('hidden');
+                   
+                    // Encontra o nome da subfase para a mensagem de sucesso
+                    const subphase = findSubphaseContent(currentPhaseId, currentSubphaseId);
+                   
+                    if (subphase) {
+                        // Só marca como concluído se ainda não estava
+                        const phaseState = phasesState.find(p => p.id === currentPhaseId);
+                        const subphaseState = phaseState.subphases.find(s => s.id === currentSubphaseId);
+                        if (!subphaseState.completed) {
+                            markSubphaseCompletedAndSaveLocal(currentPhaseId, currentSubphaseId, subphase.name);
+                        } else {
+                            // Se já estava completo, apenas mostra a mensagem de revisão
+                            showMessage(`Subfase "${subphase.name}" revisada com sucesso!`);
+                        }
+                    }
+                   
+                    // Após concluir e fechar, limpa os IDs
+                    currentPhaseId = null;
+                    currentSubphaseId = null;
+                   
+                } else {
+                    // REPETIÇÃO NECESSÁRIA
+                   
+                    // 1. Atualiza o pool de perguntas para a próxima tentativa (apenas as erradas)
+                    questionsPool = [...missedInCurrentRun];
+                    currentQuizIndex = 0;
+                   
+                    // 2. Prepara a próxima tentativa
+                    nextQuestionBtn.textContent = `Refazer ${missedCount} Pergunta(s) Errada(s)`;
+                    nextQuestionBtn.onclick = () => {
+                        missedInCurrentRun = [];
+                        loadQuestion();
+                    };
+
+                    // 3. Exibe a mensagem de feedback na modal
+                    document.getElementById('quiz-question').textContent = `Fim da Tentativa. Você errou ${missedCount} pergunta(s). Refaça-as para concluir a subfase!`;
+                    document.getElementById('quiz-counter').textContent = `Progresso da Subfase: ${totalQuestions - missedCount}/${totalQuestions} Corretas`;
+                   
+                    quizFeedback.textContent = 'Clique no botão abaixo para refazer as questões.';
+                    quizFeedback.className = 'font-semibold text-indigo-600';
+                }
+
+                return;
+            }
+
+            const quiz = questionsPool[currentQuizIndex];
+           
+            document.getElementById('quiz-counter').textContent = `Pergunta ${currentQuizIndex + 1} de ${questionsPool.length}`;
+            document.getElementById('quiz-question').textContent = quiz.question;
+           
+            // Limpa o feedback e as classes de cor
+            quizFeedback.textContent = '';
+            quizFeedback.className = 'font-semibold';
+
+            nextQuestionBtn.classList.add('hidden');
+           
+            // Comportamento padrão: avançar para a próxima pergunta no pool
+            nextQuestionBtn.textContent = 'Próxima Pergunta';
+            nextQuestionBtn.onclick = () => { currentQuizIndex++; loadQuestion(); };
+
+            quizOptionsContainer.innerHTML = '';
+            isQuizLocked = false;
+
+            const shuffledOptions = [...quiz.options].sort(() => Math.random() - 0.5);
+
+            shuffledOptions.forEach(option => {
+                const button = document.createElement('button');
+                button.className = 'option-button w-full text-left bg-gray-100 text-gray-800 font-medium py-3 px-4 rounded-lg hover:bg-indigo-100 transition-colors shadow-sm';
+                button.textContent = option;
+                button.onclick = () => checkAnswer(button, option, quiz.answer);
+                quizOptionsContainer.appendChild(button);
+            });
+        }
+
+        function checkAnswer(selectedButton, selectedOption, correctAnswer) {
+            if (isQuizLocked) return;
+            isQuizLocked = true;
+
+            const allButtons = quizOptionsContainer.querySelectorAll('button');
+            const isCorrect = selectedOption === correctAnswer;
+            const currentQuestion = questionsPool[currentQuizIndex];
+
+            // Desabilita e aplica estilo a todos os botões
+            allButtons.forEach(btn => {
+                btn.disabled = true;
+                btn.classList.remove('hover:bg-indigo-100');
+                if (btn.textContent === correctAnswer) {
+                    btn.classList.add('bg-green-500', 'text-white');
+                } else if (btn.textContent === selectedOption) {
+                    btn.classList.add('bg-red-500', 'text-white');
+                } else {
+                    btn.classList.add('opacity-70');
+                }
+            });
+
+            if (isCorrect) {
+                const indexToRemove = missedInCurrentRun.indexOf(currentQuestion);
+                if (indexToRemove > -1) {
+                    missedInCurrentRun.splice(indexToRemove, 1);
+                }
+
+                quizFeedback.textContent = '✅ Resposta Correta!';
+                quizFeedback.className = 'font-semibold text-green-600';
+               
+            } else {
+                if (!missedInCurrentRun.includes(currentQuestion)) {
+                    missedInCurrentRun.push(currentQuestion);
+                }
+               
+                quizFeedback.textContent = `❌ Resposta Incorreta. A resposta correta está marcada em verde.`;
+                quizFeedback.className = 'font-semibold text-red-600';
+            }
+           
+            nextQuestionBtn.classList.remove('hidden');
+            nextQuestionBtn.focus();
+        }
+
+
+        // --- Funções de Persistência Local (LocalStorage) ---
+
+        function saveLocalProgress() {
+            // Salva apenas o estado simples (id e completion de subfases)
+            const dataToSave = {
+                phases: phasesState.map(p => ({
+                    id: p.id,
+                    subphases: p.subphases.map(s => ({ id: s.id, completed: s.completed }))
+                }))
+            };
+            localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(dataToSave));
+        }
+
+        function loadLocalProgress() {
+            const savedData = localStorage.getItem(LOCAL_STORAGE_KEY);
+            if (savedData) {
+                try {
+                    const parsedData = JSON.parse(savedData);
+                   
+                    const loadedState = ALL_PHASES.map(masterPhase => {
+                        const savedPhase = parsedData.phases ? parsedData.phases.find(p => p.id === masterPhase.id) : null;
+                       
+                        return {
+                            id: masterPhase.id,
+                            name: masterPhase.name,
+                            icon: masterPhase.icon,
+                            completed: false, // Será calculado em renderPhases
+                            subphases: masterPhase.subphases.map(subphase => {
+                                const savedSubphase = savedPhase && savedPhase.subphases ? savedPhase.subphases.find(s => s.id === subphase.id) : null;
+                                return {
+                                    id: subphase.id,
+                                    completed: savedSubphase ? savedSubphase.completed : false
+                                };
+                            })
+                        };
+                    });
+                   
+                    phasesState = loadedState;
+                    console.log("Progresso local carregado.");
+                } catch (e) {
+                    console.error("Erro ao analisar progresso salvo, iniciando do zero.", e);
+                }
+            } else {
+                console.log("Nenhum progresso local encontrado.");
+            }
+        }
+
+        function markSubphaseCompletedAndSaveLocal(phaseId, subphaseId, subphaseName) {
+            // 1. Atualizar o estado local da subfase
+            const phaseIndex = phasesState.findIndex(p => p.id === phaseId);
+            if (phaseIndex === -1) return;
+
+            const subphaseIndex = phasesState[phaseIndex].subphases.findIndex(s => s.id === subphaseId);
+            // Se já estava completo, não faz nada
+            if (subphaseIndex === -1 || phasesState[phaseIndex].subphases[subphaseIndex].completed) {
+                 // Apenas renderiza se não estava completo, para evitar salvar desnecessariamente
+                 if(subphaseIndex !== -1) {
+                    renderPhases();
+                 }
+                 return;
+            }
+
+            phasesState[phaseIndex].subphases[subphaseIndex].completed = true;
+           
+            // 2. Salvar e renderizar
+            try {
+                saveLocalProgress();
+                showMessage(`Subfase "${subphaseName}" concluída e progresso salvo localmente!`);
+                renderPhases(); // Re-renderiza para atualizar o card principal
+            } catch (error) {
+                console.error("Erro ao salvar o progresso localmente:", error);
+                phasesState[phaseIndex].subphases[subphaseIndex].completed = false; // Reverter estado
+                renderPhases();
+                showMessage('Erro ao salvar o progresso localmente. Tente novamente.');
+            }
+        }
+       
+        // --- Inicialização do Aplicativo ---
+
+        function initializeAppLocal() {
+            loadLocalProgress();
+            renderPhases();
+        }
+
+        window.onload = initializeAppLocal;
+
+    </script>
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('sw.js');
+        }
+    </script>
+    
+</body>
+</html>
